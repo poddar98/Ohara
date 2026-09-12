@@ -1,0 +1,98 @@
+The following files have been resolved:
+   org.springframework.boot:spring-boot-starter-actuator:jar:4.0.8:compile[36m -- module spring.boot.starter.actuator[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter:jar:4.0.8:compile[36m -- module spring.boot.starter[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-logging:jar:4.0.8:compile[36m -- module spring.boot.starter.logging[0;1m [auto][m
+   ch.qos.logback:logback-classic:jar:1.5.38:compile[36m -- module ch.qos.logback.classic[m
+   ch.qos.logback:logback-core:jar:1.5.38:compile[36m -- module ch.qos.logback.core[m
+   org.apache.logging.log4j:log4j-to-slf4j:jar:2.25.5:compile[36m -- module org.apache.logging.log4j.to.slf4j[m
+   org.apache.logging.log4j:log4j-api:jar:2.25.5:compile[36m -- module org.apache.logging.log4j[m
+   org.slf4j:jul-to-slf4j:jar:2.0.18:compile[36m -- module jul.to.slf4j[m
+   jakarta.annotation:jakarta.annotation-api:jar:3.0.0:compile[36m -- module jakarta.annotation[m
+   org.yaml:snakeyaml:jar:2.5:compile[36m -- module org.yaml.snakeyaml[m
+   org.springframework.boot:spring-boot-starter-micrometer-metrics:jar:4.0.8:compile[36m -- module spring.boot.starter.micrometer.metrics[0;1m [auto][m
+   org.springframework.boot:spring-boot-micrometer-metrics:jar:4.0.8:compile[36m -- module spring.boot.micrometer.metrics[0;1m [auto][m
+   org.springframework.boot:spring-boot-micrometer-observation:jar:4.0.8:compile[36m -- module spring.boot.micrometer.observation[0;1m [auto][m
+   org.springframework.boot:spring-boot-actuator-autoconfigure:jar:4.0.8:compile[36m -- module spring.boot.actuator.autoconfigure[0;1m [auto][m
+   org.springframework.boot:spring-boot-health:jar:4.0.8:compile[36m -- module spring.boot.health[0;1m [auto][m
+   io.micrometer:micrometer-observation:jar:1.16.7:compile[36m -- module micrometer.observation[0;1m [auto][m
+   io.micrometer:micrometer-commons:jar:1.16.7:compile[36m -- module micrometer.commons[0;1m [auto][m
+   io.micrometer:micrometer-jakarta9:jar:1.16.7:compile[36m -- module micrometer.jakarta9[0;1m [auto][m
+   io.micrometer:micrometer-core:jar:1.16.7:compile[36m -- module micrometer.core[0;1m [auto][m
+   org.hdrhistogram:HdrHistogram:jar:2.2.2:runtime[36m -- module HdrHistogram[0;1;33m (auto)[m
+   org.latencyutils:LatencyUtils:jar:2.0.3:runtime[36m -- module LatencyUtils[0;1;33m (auto)[m
+   org.springframework.boot:spring-boot-starter-security:jar:4.0.8:compile[36m -- module spring.boot.starter.security[0;1m [auto][m
+   org.springframework.boot:spring-boot-security:jar:4.0.8:compile[36m -- module spring.boot.security[0;1m [auto][m
+   org.springframework.security:spring-security-config:jar:7.0.7:compile[36m -- module spring.security.config[0;1m [auto][m
+   org.springframework.security:spring-security-core:jar:7.0.7:compile[36m -- module spring.security.core[0;1m [auto][m
+   org.springframework.security:spring-security-web:jar:7.0.7:compile[36m -- module spring.security.web[0;1m [auto][m
+   org.springframework:spring-expression:jar:7.0.9:compile[36m -- module spring.expression[0;1m [auto][m
+   org.springframework:spring-aop:jar:7.0.9:compile[36m -- module spring.aop[0;1m [auto][m
+   org.springframework:spring-beans:jar:7.0.9:compile[36m -- module spring.beans[0;1m [auto][m
+   org.springframework:spring-core:jar:7.0.9:compile[36m -- module spring.core[0;1m [auto][m
+   commons-logging:commons-logging:jar:1.3.6:compile[36m -- module org.apache.commons.logging[m
+   org.springframework.boot:spring-boot-starter-webmvc:jar:4.0.8:compile[36m -- module spring.boot.starter.webmvc[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-jackson:jar:4.0.8:compile[36m -- module spring.boot.starter.jackson[0;1m [auto][m
+   org.springframework.boot:spring-boot-jackson:jar:4.0.8:compile[36m -- module spring.boot.jackson[0;1m [auto][m
+   tools.jackson.core:jackson-databind:jar:3.1.5:compile[36m -- module tools.jackson.databind[m
+   tools.jackson.core:jackson-core:jar:3.1.5:compile[36m -- module tools.jackson.core[m
+   org.springframework.boot:spring-boot-starter-tomcat:jar:4.0.8:compile[36m -- module spring.boot.starter.tomcat[0;1m [auto][m
+   org.springframework.boot:spring-boot-starter-tomcat-runtime:jar:4.0.8:compile[36m -- module spring.boot.starter.tomcat.runtime[0;1m [auto][m
+   org.apache.tomcat.embed:tomcat-embed-core:jar:11.0.24:compile[36m -- module org.apache.tomcat.embed.core[m
+   org.apache.tomcat.embed:tomcat-embed-el:jar:11.0.24:compile[36m -- module org.apache.tomcat.embed.el[m
+   org.apache.tomcat.embed:tomcat-embed-websocket:jar:11.0.24:compile[36m -- module org.apache.tomcat.embed.websocket[m
+   org.springframework.boot:spring-boot-tomcat:jar:4.0.8:compile[36m -- module spring.boot.tomcat[0;1m [auto][m
+   org.springframework.boot:spring-boot-http-converter:jar:4.0.8:compile[36m -- module spring.boot.http.converter[0;1m [auto][m
+   org.springframework:spring-web:jar:7.0.9:compile[36m -- module spring.web[0;1m [auto][m
+   org.springframework.boot:spring-boot-webmvc:jar:4.0.8:compile[36m -- module spring.boot.webmvc[0;1m [auto][m
+   org.springframework.boot:spring-boot-servlet:jar:4.0.8:compile[36m -- module spring.boot.servlet[0;1m [auto][m
+   org.springframework:spring-webmvc:jar:7.0.9:compile[36m -- module spring.webmvc[0;1m [auto][m
+   org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j:jar:5.0.3:compile[36m -- module spring.cloud.starter.circuitbreaker.resilience4j[0;1;33m (auto)[m
+   org.springframework.cloud:spring-cloud-starter:jar:5.0.3:compile[36m -- module spring.cloud.starter[0;1;33m (auto)[m
+   org.springframework.cloud:spring-cloud-context:jar:5.0.3:compile[36m -- module spring.cloud.context[0;1;33m (auto)[m
+   org.springframework.security:spring-security-crypto:jar:7.0.7:compile[36m -- module spring.security.crypto[0;1m [auto][m
+   org.springframework.cloud:spring-cloud-commons:jar:5.0.3:compile[36m -- module spring.cloud.commons[0;1;33m (auto)[m
+   org.bouncycastle:bcprov-jdk18on:jar:1.85.2:compile[36m -- module org.bouncycastle.provider[m
+   org.springframework.cloud:spring-cloud-circuitbreaker-resilience4j:jar:5.0.3:compile[36m -- module spring.cloud.circuitbreaker.resilience4j[0;1;33m (auto)[m
+   com.fasterxml.jackson.core:jackson-core:jar:2.21.5:compile[36m -- module com.fasterxml.jackson.core[m
+   com.fasterxml.jackson.core:jackson-databind:jar:2.21.5:compile[36m -- module com.fasterxml.jackson.databind[m
+   com.fasterxml.jackson.core:jackson-annotations:jar:2.21:compile[36m -- module com.fasterxml.jackson.annotation[m
+   io.github.resilience4j:resilience4j-spring-boot3:jar:2.3.0:compile[36m -- module io.github.resilience4j.springboot3[0;1m [auto][m
+   io.github.resilience4j:resilience4j-spring6:jar:2.3.0:compile[36m -- module io.github.resilience4j.spring6[0;1m [auto][m
+   io.github.resilience4j:resilience4j-annotations:jar:2.3.0:compile[36m -- module io.github.resilience4j.annotations[0;1m [auto][m
+   io.github.resilience4j:resilience4j-consumer:jar:2.3.0:compile[36m -- module io.github.resilience4j.consumer[0;1m [auto][m
+   io.github.resilience4j:resilience4j-circularbuffer:jar:2.3.0:runtime[36m -- module io.github.resilience4j.circularbuffer[0;1m [auto][m
+   io.github.resilience4j:resilience4j-framework-common:jar:2.3.0:compile[36m -- module io.github.resilience4j.frameworkcommon[0;1m [auto][m
+   io.github.resilience4j:resilience4j-micrometer:jar:2.3.0:compile[36m -- module io.github.resilience4j.micrometer[0;1m [auto][m
+   io.github.resilience4j:resilience4j-retry:jar:2.3.0:compile[36m -- module io.github.resilience4j.retry[0;1m [auto][m
+   io.github.resilience4j:resilience4j-ratelimiter:jar:2.3.0:compile[36m -- module io.github.resilience4j.ratelimiter[0;1m [auto][m
+   io.github.resilience4j:resilience4j-circuitbreaker:jar:2.3.0:compile[36m -- module io.github.resilience4j.circuitbreaker[0;1m [auto][m
+   io.github.resilience4j:resilience4j-core:jar:2.3.0:compile[36m -- module io.github.resilience4j.core[0;1m [auto][m
+   org.jetbrains.kotlin:kotlin-stdlib-jdk8:jar:2.2.21:compile[36m -- module kotlin.stdlib.jdk8[m
+   org.jetbrains.kotlin:kotlin-stdlib:jar:2.2.21:compile[36m -- module kotlin.stdlib[m
+   org.jetbrains:annotations:jar:13.0:compile[36m -- module annotations[0;1;33m (auto)[m
+   org.jetbrains.kotlin:kotlin-stdlib-jdk7:jar:2.2.21:compile[36m -- module kotlin.stdlib.jdk7[m
+   org.slf4j:slf4j-api:jar:2.0.18:compile[36m -- module org.slf4j[m
+   io.github.resilience4j:resilience4j-timelimiter:jar:2.3.0:compile[36m -- module io.github.resilience4j.timelimiter[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-starter-core:jar:2.0.8:compile[36m -- module spring.modulith.starter.core[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-api:jar:2.0.8:compile[36m -- module spring.modulith.api[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-apt:jar:2.0.8:compile[36m -- module spring.modulith.apt[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-core:jar:2.0.8:runtime[36m -- module spring.modulith.core[0;1m [auto][m
+   com.tngtech.archunit:archunit:jar:1.4.2:runtime[36m -- module com.tngtech.archunit[0;1m [auto][m
+   org.springframework:spring-context:jar:7.0.9:compile[36m -- module spring.context[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-moments:jar:2.0.8:compile[36m -- module spring.modulith.moments[0;1m [auto][m
+   org.jmolecules:jmolecules-events:jar:2.0.1:compile[36m -- module org.jmolecules.event[m
+   org.jmolecules:jstereotype:jar:2.0.1:compile[36m -- module org.jmolecules.stereotype[m
+   org.springframework.boot:spring-boot-devtools:jar:4.0.8:runtime (optional)[36m -- module spring.boot.devtools[0;1m [auto][m
+   org.springframework.boot:spring-boot:jar:4.0.8:compile[36m -- module spring.boot[0;1m [auto][m
+   org.springframework.boot:spring-boot-autoconfigure:jar:4.0.8:compile[36m -- module spring.boot.autoconfigure[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-actuator:jar:2.0.8:runtime[36m -- module org.springframework.modulith.actuator[0;1m [auto][m
+   org.jspecify:jspecify:jar:1.0.1:compile[36m -- module org.jspecify[m
+   org.springframework.modulith:spring-modulith-runtime:jar:2.0.8:runtime[36m -- module spring.modulith.runtime[0;1m [auto][m
+   org.springframework.boot:spring-boot-actuator:jar:4.0.8:compile[36m -- module spring.boot.actuator[0;1m [auto][m
+   org.springframework.modulith:spring-modulith-observability:jar:2.0.8:runtime[36m -- module spring.modulith.observability[0;1m [auto][m
+   io.micrometer:micrometer-tracing:jar:1.6.7:runtime[36m -- module micrometer.tracing[0;1m [auto][m
+   io.micrometer:context-propagation:jar:1.2.1:runtime[36m -- module context.propagation[0;1m [auto][m
+   aopalliance:aopalliance:jar:1.0:runtime[36m -- module aopalliance[0;1;33m (auto)[m
+   org.projectlombok:lombok:jar:1.18.46:compile (optional)[36m -- module lombok[m
+   org.springframework.boot:spring-boot-web-server:jar:4.0.8:compile[36m -- module spring.boot.web.server[0;1m [auto][m
+
