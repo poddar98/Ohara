@@ -21,7 +21,7 @@ public class PasswordCredential {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-
+//hello
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "auth_identity_id", nullable = false, unique = true)
     private AuthIdentity authIdentity;
