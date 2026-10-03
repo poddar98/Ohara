@@ -1,6 +1,8 @@
 package org.example.ohara.config;
 
-import org.example.ohara.user.UserRepository;
+import org.example.ohara.auth.infrastructure.security.JwtAuthenticationFilter;
+import org.example.ohara.user.domain.UserStatus;
+import org.example.ohara.user.infrastructure.persistence.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -10,6 +12,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -54,10 +57,10 @@ public class SecurityConfig {
                     .authorities(user.getRoles().stream()
                         .map(role -> role.getName())
                         .map(name -> name.startsWith("ROLE_") ? name : "ROLE_" + name)
-                        .map(org.springframework.security.core.authority.SimpleGrantedAuthority::new)
+                        .map(SimpleGrantedAuthority::new)
                         .toList())
-                    .accountLocked(user.getStatus() != org.example.ohara.user.UserStatus.ACTIVE)
-                    .disabled(user.getStatus() != org.example.ohara.user.UserStatus.ACTIVE)
+                    .accountLocked(user.getStatus() != UserStatus.ACTIVE)
+                    .disabled(user.getStatus() != UserStatus.ACTIVE)
                     .build();
             })
             .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));

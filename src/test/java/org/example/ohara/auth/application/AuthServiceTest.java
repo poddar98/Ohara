@@ -1,0 +1,151 @@
+package org.example.ohara.auth.application;
+
+import org.example.ohara.auth.api.dto.AuthResponse;
+import org.example.ohara.auth.api.dto.RefreshTokenRequest;
+import org.example.ohara.auth.api.dto.RegisterRequest;
+import org.example.ohara.auth.domain.RefreshToken;
+import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
+import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
+import org.example.ohara.user.domain.User;
+import org.example.ohara.user.domain.UserRole;
+import org.example.ohara.user.infrastructure.persistence.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+class AuthServiceTest {
+
+    private UserRepository userRepository;
+    private RefreshTokenRepository refreshTokenRepository;
+    private PasswordEncoder passwordEncoder;
+    private AuthenticationManager authenticationManager;
+    private JwtTokenProvider jwtTokenProvider;
+    private AuthService authService;
+
+    @BeforeEach
+    void setUp() {
+        userRepository = mock(UserRepository.class);
+        refreshTokenRepository = mock(RefreshTokenRepository.class);
+        passwordEncoder = mock(PasswordEncoder.class);
+        authenticationManager = mock(AuthenticationManager.class);
+        jwtTokenProvider = new JwtTokenProvider();
+        ReflectionTestUtils.setField(jwtTokenProvider, "secret", "ohara-local-jwt-secret-key-should-be-at-least-32-chars");
+        ReflectionTestUtils.setField(jwtTokenProvider, "accessTokenValidityMs", 3600000L);
+        ReflectionTestUtils.setField(jwtTokenProvider, "refreshTokenValidityMs", 604800000L);
+        jwtTokenProvider.init();
+
+        authService = new AuthService(
+            userRepository,
+            refreshTokenRepository,
+            passwordEncoder,
+            authenticationManager,
+            jwtTokenProvider
+        );
+    }
+
+    private User existingUser() {
+        User user = new User("ada@example.com", "Ada", "Lovelace");
+        UserRole role = new UserRole("ROLE_USER");
+        role.setUser(user);
+        user.getRoles().add(role);
+        return user;
+    }
+
+    @Test
+    void registerCreatesUserAndPersistsRefreshToken() {
+        when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("secret1234")).thenReturn("encoded-password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AuthResponse response = authService.register(new RegisterRequest("Ada", "Lovelace", "user@example.com", "secret1234"));
+
+        assertThat(response.email()).isEqualTo("user@example.com");
+        assertThat(response.accessToken()).isNotBlank();
+        assertThat(response.refreshToken()).isNotBlank();
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+        verify(refreshTokenRepository).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void refreshRevokesPresentedTokenAndIssuesNewPair() {
+        User user = existingUser();
+        String oldRefresh = jwtTokenProvider.generateRefreshToken(user);
+        RefreshToken stored = new RefreshToken(user, authService.hashToken(oldRefresh), jwtTokenProvider.getExpiration(oldRefresh));
+        when(refreshTokenRepository.findByTokenHash(authService.hashToken(oldRefresh))).thenReturn(Optional.of(stored));
+        when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AuthResponse response = authService.refresh(new RefreshTokenRequest(oldRefresh));
+
+        assertThat(stored.isRevoked()).isTrue();
+        assertThat(response.refreshToken()).isNotEqualTo(oldRefresh);
+        verify(refreshTokenRepository).save(any(RefreshToken.class));
+    }
+
+    @Test
+    void reusingRevokedRefreshTokenRevokesAllActiveSessions() {
+        User user = existingUser();
+        String token = jwtTokenProvider.generateRefreshToken(user);
+        RefreshToken revoked = new RefreshToken(user, authService.hashToken(token), jwtTokenProvider.getExpiration(token));
+        revoked.revoke(LocalDateTime.now().minusMinutes(1));
+        RefreshToken otherSession = new RefreshToken(user, "other-session-hash", jwtTokenProvider.getExpiration(token));
+        when(refreshTokenRepository.findByTokenHash(authService.hashToken(token))).thenReturn(Optional.of(revoked));
+        when(refreshTokenRepository.findByUserAndRevokedAtIsNull(user)).thenReturn(List.of(otherSession));
+
+        assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(token)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("Refresh token has been revoked");
+        assertThat(otherSession.isRevoked()).isTrue();
+    }
+
+    @Test
+    void refreshRejectsTokenThatIsNotInStore() {
+        String token = jwtTokenProvider.generateRefreshToken(existingUser());
+        when(refreshTokenRepository.findByTokenHash(authService.hashToken(token))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(token)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("Invalid refresh token");
+    }
+
+    @Test
+    void refreshRejectsAccessToken() {
+        String accessToken = jwtTokenProvider.generateAccessToken(existingUser());
+
+        assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(accessToken)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("Invalid refresh token");
+    }
+
+    @Test
+    void logoutRevokesActiveRefreshToken() {
+        User user = existingUser();
+        String token = jwtTokenProvider.generateRefreshToken(user);
+        RefreshToken stored = new RefreshToken(user, authService.hashToken(token), jwtTokenProvider.getExpiration(token));
+        when(refreshTokenRepository.findByTokenHash(authService.hashToken(token))).thenReturn(Optional.of(stored));
+
+        authService.logout(new RefreshTokenRequest(token));
+
+        assertThat(stored.isRevoked()).isTrue();
+    }
+
+    @Test
+    void logoutIgnoresInvalidToken() {
+        authService.logout(new RefreshTokenRequest("not-a-jwt"));
+
+        verifyNoInteractions(refreshTokenRepository);
+    }
+}
