@@ -29,6 +29,11 @@ spring:
 server:
   port: 8080
 
+jwt:
+  secret: ohara-docker-jwt-secret-key-should-be-at-least-32-chars
+  access-token-validity-ms: 3600000
+  refresh-token-validity-ms: 604800000
+
 management:
   endpoints:
     web:
