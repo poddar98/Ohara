@@ -7,6 +7,8 @@ import org.example.ohara.user.infrastructure.persistence.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 public class UserService {
 
@@ -18,7 +20,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public UserResponse getByEmail(String email) {
-        User user = userRepository.findByEmail(email)
+        User user = findByEmail(email)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         return new UserResponse(
@@ -29,5 +31,21 @@ public class UserService {
             user.getStatus().name(),
             user.getRoles().stream().map(UserRole::getName).toList()
         );
+    }
+
+    /** Used by other modules (auth) that need to look up or create users without touching the repository. */
+    @Transactional(readOnly = true)
+    public Optional<User> findByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean existsByEmail(String email) {
+        return userRepository.existsByEmail(email);
+    }
+
+    @Transactional
+    public User save(User user) {
+        return userRepository.save(user);
     }
 }

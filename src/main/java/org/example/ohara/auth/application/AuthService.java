@@ -1,18 +1,18 @@
 package org.example.ohara.auth.application;
 
-import org.example.ohara.auth.api.dto.AuthResponse;
 import org.example.ohara.auth.api.dto.LoginRequest;
-import org.example.ohara.auth.api.dto.RefreshTokenRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
 import org.example.ohara.auth.domain.AuthIdentity;
 import org.example.ohara.auth.domain.PasswordCredential;
 import org.example.ohara.auth.domain.RefreshToken;
 import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
+import org.example.ohara.auth.infrastructure.persistence.AuthIdentityRepository;
+import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
+import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.example.ohara.user.domain.UserProfile;
 import org.example.ohara.user.domain.UserRole;
-import org.example.ohara.user.infrastructure.persistence.UserRepository;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -29,19 +29,25 @@ import java.util.Base64;
 @Service
 public class AuthService {
 
-    private final UserRepository userRepository;
+    private final UserService userService;
+    private final AuthIdentityRepository authIdentityRepository;
+    private final PasswordCredentialRepository passwordCredentialRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
 
     public AuthService(
-            UserRepository userRepository,
+            UserService userService,
+            AuthIdentityRepository authIdentityRepository,
+            PasswordCredentialRepository passwordCredentialRepository,
             RefreshTokenRepository refreshTokenRepository,
             PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
             JwtTokenProvider jwtTokenProvider) {
-        this.userRepository = userRepository;
+        this.userService = userService;
+        this.authIdentityRepository = authIdentityRepository;
+        this.passwordCredentialRepository = passwordCredentialRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
@@ -49,9 +55,9 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public IssuedTokens register(RegisterRequest request) {
         String email = request.email().toLowerCase();
-        if (userRepository.existsByEmail(email)) {
+        if (userService.existsByEmail(email)) {
             throw new IllegalArgumentException("User already exists");
         }
 
@@ -61,24 +67,21 @@ public class AuthService {
         UserProfile profile = new UserProfile(user, request.firstName(), request.lastName());
         user.setProfile(profile);
 
-        AuthIdentity authIdentity = new AuthIdentity(user, "local", email);
-        user.getAuthIdentities().add(authIdentity);
-
         UserRole userRole = new UserRole("ROLE_USER");
         userRole.setUser(user);
         user.getRoles().add(userRole);
 
+        User saved = userService.save(user);
+
+        AuthIdentity authIdentity = authIdentityRepository.save(new AuthIdentity(saved, "local", email));
         String encodedPassword = passwordEncoder.encode(request.password());
-        PasswordCredential passwordCredential = new PasswordCredential(authIdentity, encodedPassword);
-        authIdentity.setPasswordCredential(passwordCredential);
+        passwordCredentialRepository.save(new PasswordCredential(authIdentity, encodedPassword));
 
-        userRepository.save(user);
-
-        return issueTokens(user);
+        return issueTokens(saved);
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public IssuedTokens login(LoginRequest request) {
         String email = request.email().toLowerCase();
         Authentication authentication = authenticationManager.authenticate(
             new UsernamePasswordAuthenticationToken(email, request.password())
@@ -88,7 +91,7 @@ public class AuthService {
             throw new IllegalArgumentException("Invalid credentials");
         }
 
-        User user = userRepository.findByEmail(email)
+        User user = userService.findByEmail(email)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         user.setLastLoginAt(LocalDateTime.now());
@@ -102,13 +105,12 @@ public class AuthService {
      */
     // noRollbackFor: reuse detection revokes sessions and then throws; the revocations must survive the exception.
     @Transactional(noRollbackFor = IllegalArgumentException.class)
-    public AuthResponse refresh(RefreshTokenRequest request) {
-        String rawToken = request.refreshToken();
-        if (!jwtTokenProvider.validateRefreshToken(rawToken)) {
+    public IssuedTokens refresh(String rawRefreshToken) {
+        if (!jwtTokenProvider.validateRefreshToken(rawRefreshToken)) {
             throw new IllegalArgumentException("Invalid refresh token");
         }
 
-        RefreshToken stored = refreshTokenRepository.findByTokenHash(hashToken(rawToken))
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(hashToken(rawRefreshToken))
             .orElseThrow(() -> new IllegalArgumentException("Invalid refresh token"));
 
         LocalDateTime now = LocalDateTime.now();
@@ -126,28 +128,24 @@ public class AuthService {
 
     /** Idempotent: an unknown, invalid or already-revoked token is a no-op. */
     @Transactional
-    public void logout(RefreshTokenRequest request) {
-        String rawToken = request.refreshToken();
-        if (!jwtTokenProvider.validateRefreshToken(rawToken)) {
+    public void logout(String rawRefreshToken) {
+        if (!jwtTokenProvider.validateRefreshToken(rawRefreshToken)) {
             return;
         }
 
-        refreshTokenRepository.findByTokenHash(hashToken(rawToken))
+        refreshTokenRepository.findByTokenHash(hashToken(rawRefreshToken))
             .filter(token -> !token.isRevoked())
             .ifPresent(token -> token.revoke(LocalDateTime.now()));
     }
 
-    private AuthResponse issueTokens(User user) {
+    private IssuedTokens issueTokens(User user) {
         String accessToken = jwtTokenProvider.generateAccessToken(user);
         String refreshToken = jwtTokenProvider.generateRefreshToken(user);
+        LocalDateTime refreshExpiresAt = jwtTokenProvider.getExpiration(refreshToken);
 
-        refreshTokenRepository.save(new RefreshToken(
-            user,
-            hashToken(refreshToken),
-            jwtTokenProvider.getExpiration(refreshToken)
-        ));
+        refreshTokenRepository.save(new RefreshToken(user, hashToken(refreshToken), refreshExpiresAt));
 
-        return new AuthResponse(accessToken, refreshToken, "Bearer", user.getEmail());
+        return new IssuedTokens(accessToken, refreshToken, refreshExpiresAt, user.getEmail());
     }
 
     String hashToken(String rawToken) {

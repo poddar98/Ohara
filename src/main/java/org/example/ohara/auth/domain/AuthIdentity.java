@@ -1,6 +1,5 @@
 package org.example.ohara.auth.domain;
 
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -43,7 +42,7 @@ public class AuthIdentity {
     private LocalDateTime verifiedAt;
 
     @Setter
-    @OneToOne(mappedBy = "authIdentity", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToOne(mappedBy = "authIdentity", fetch = FetchType.LAZY)
     private PasswordCredential passwordCredential;
 
     public AuthIdentity() {

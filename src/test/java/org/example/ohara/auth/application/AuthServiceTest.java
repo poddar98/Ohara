@@ -1,14 +1,15 @@
 package org.example.ohara.auth.application;
 
-import org.example.ohara.auth.api.dto.AuthResponse;
-import org.example.ohara.auth.api.dto.RefreshTokenRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
+import org.example.ohara.auth.domain.AuthIdentity;
 import org.example.ohara.auth.domain.RefreshToken;
 import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
+import org.example.ohara.auth.infrastructure.persistence.AuthIdentityRepository;
+import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
+import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.example.ohara.user.domain.UserRole;
-import org.example.ohara.user.infrastructure.persistence.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -29,7 +30,9 @@ import static org.mockito.Mockito.when;
 
 class AuthServiceTest {
 
-    private UserRepository userRepository;
+    private UserService userService;
+    private AuthIdentityRepository authIdentityRepository;
+    private PasswordCredentialRepository passwordCredentialRepository;
     private RefreshTokenRepository refreshTokenRepository;
     private PasswordEncoder passwordEncoder;
     private AuthenticationManager authenticationManager;
@@ -38,7 +41,9 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        userRepository = mock(UserRepository.class);
+        userService = mock(UserService.class);
+        authIdentityRepository = mock(AuthIdentityRepository.class);
+        passwordCredentialRepository = mock(PasswordCredentialRepository.class);
         refreshTokenRepository = mock(RefreshTokenRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         authenticationManager = mock(AuthenticationManager.class);
@@ -49,7 +54,9 @@ class AuthServiceTest {
         jwtTokenProvider.init();
 
         authService = new AuthService(
-            userRepository,
+            userService,
+            authIdentityRepository,
+            passwordCredentialRepository,
             refreshTokenRepository,
             passwordEncoder,
             authenticationManager,
@@ -66,17 +73,20 @@ class AuthServiceTest {
     }
 
     @Test
-    void registerCreatesUserAndPersistsRefreshToken() {
-        when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+    void registerCreatesUserIdentityAndPersistsRefreshToken() {
+        when(userService.existsByEmail("user@example.com")).thenReturn(false);
         when(passwordEncoder.encode("secret1234")).thenReturn("encoded-password");
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userService.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(authIdentityRepository.save(any(AuthIdentity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        AuthResponse response = authService.register(new RegisterRequest("Ada", "Lovelace", "user@example.com", "secret1234"));
+        IssuedTokens tokens = authService.register(new RegisterRequest("Ada", "Lovelace", "user@example.com", "secret1234"));
 
-        assertThat(response.email()).isEqualTo("user@example.com");
-        assertThat(response.accessToken()).isNotBlank();
-        assertThat(response.refreshToken()).isNotBlank();
-        assertThat(response.tokenType()).isEqualTo("Bearer");
+        assertThat(tokens.email()).isEqualTo("user@example.com");
+        assertThat(tokens.accessToken()).isNotBlank();
+        assertThat(tokens.refreshToken()).isNotBlank();
+        assertThat(tokens.refreshExpiresAt()).isAfter(LocalDateTime.now());
+        verify(authIdentityRepository).save(any(AuthIdentity.class));
+        verify(passwordCredentialRepository).save(any());
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
@@ -88,10 +98,10 @@ class AuthServiceTest {
         when(refreshTokenRepository.findByTokenHash(authService.hashToken(oldRefresh))).thenReturn(Optional.of(stored));
         when(refreshTokenRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        AuthResponse response = authService.refresh(new RefreshTokenRequest(oldRefresh));
+        IssuedTokens tokens = authService.refresh(oldRefresh);
 
         assertThat(stored.isRevoked()).isTrue();
-        assertThat(response.refreshToken()).isNotEqualTo(oldRefresh);
+        assertThat(tokens.refreshToken()).isNotEqualTo(oldRefresh);
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
@@ -105,7 +115,7 @@ class AuthServiceTest {
         when(refreshTokenRepository.findByTokenHash(authService.hashToken(token))).thenReturn(Optional.of(revoked));
         when(refreshTokenRepository.findByUserAndRevokedAtIsNull(user)).thenReturn(List.of(otherSession));
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(token)))
+        assertThatThrownBy(() -> authService.refresh(token))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage("Refresh token has been revoked");
         assertThat(otherSession.isRevoked()).isTrue();
@@ -116,7 +126,7 @@ class AuthServiceTest {
         String token = jwtTokenProvider.generateRefreshToken(existingUser());
         when(refreshTokenRepository.findByTokenHash(authService.hashToken(token))).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(token)))
+        assertThatThrownBy(() -> authService.refresh(token))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage("Invalid refresh token");
     }
@@ -125,7 +135,7 @@ class AuthServiceTest {
     void refreshRejectsAccessToken() {
         String accessToken = jwtTokenProvider.generateAccessToken(existingUser());
 
-        assertThatThrownBy(() -> authService.refresh(new RefreshTokenRequest(accessToken)))
+        assertThatThrownBy(() -> authService.refresh(accessToken))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage("Invalid refresh token");
     }
@@ -137,14 +147,14 @@ class AuthServiceTest {
         RefreshToken stored = new RefreshToken(user, authService.hashToken(token), jwtTokenProvider.getExpiration(token));
         when(refreshTokenRepository.findByTokenHash(authService.hashToken(token))).thenReturn(Optional.of(stored));
 
-        authService.logout(new RefreshTokenRequest(token));
+        authService.logout(token);
 
         assertThat(stored.isRevoked()).isTrue();
     }
 
     @Test
     void logoutIgnoresInvalidToken() {
-        authService.logout(new RefreshTokenRequest("not-a-jwt"));
+        authService.logout("not-a-jwt");
 
         verifyNoInteractions(refreshTokenRepository);
     }

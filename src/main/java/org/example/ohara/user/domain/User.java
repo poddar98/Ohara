@@ -11,8 +11,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import org.example.ohara.auth.domain.AuthIdentity;
-import org.example.ohara.auth.domain.RefreshToken;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -54,12 +52,6 @@ public class User {
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<UserRole> roles = new ArrayList<>();
-
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<AuthIdentity> authIdentities = new ArrayList<>();
-
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<RefreshToken> refreshTokens = new ArrayList<>();
 
     public User() {
         LocalDateTime now = LocalDateTime.now();
@@ -145,21 +137,5 @@ public class User {
 
     public void setRoles(List<UserRole> roles) {
         this.roles = roles;
-    }
-
-    public List<AuthIdentity> getAuthIdentities() {
-        return authIdentities;
-    }
-
-    public void setAuthIdentities(List<AuthIdentity> authIdentities) {
-        this.authIdentities = authIdentities;
-    }
-
-    public List<RefreshToken> getRefreshTokens() {
-        return refreshTokens;
-    }
-
-    public void setRefreshTokens(List<RefreshToken> refreshTokens) {
-        this.refreshTokens = refreshTokens;
     }
 }

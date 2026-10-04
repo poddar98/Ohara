@@ -34,6 +34,10 @@ jwt:
   access-token-validity-ms: 3600000
   refresh-token-validity-ms: 604800000
 
+auth:
+  refresh-cookie:
+    secure: false  # plain HTTP in compose; set true behind TLS
+
 management:
   endpoints:
     web:
