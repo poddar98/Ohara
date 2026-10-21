@@ -31,6 +31,7 @@ public class AccountRecoveryService {
 
     static final Duration VERIFICATION_TTL = Duration.ofHours(24);
     static final Duration RESET_TTL = Duration.ofMinutes(30);
+    static final Duration SET_PASSWORD_TTL = Duration.ofHours(72);
     static final Duration RESEND_COOLDOWN = Duration.ofSeconds(60);
 
     private static final Set<UserStatus> RESETTABLE =
@@ -65,6 +66,12 @@ public class AccountRecoveryService {
     void sendVerification(User user, Instant now) {
         String raw = issue(user, Purpose.EMAIL_VERIFICATION, VERIFICATION_TTL, now);
         emails.verification(user.getEmail(), raw);
+    }
+
+    /** First password for an admin-created account. Uses the reset flow, so using the link also verifies the email. */
+    void sendSetPassword(User user, Instant now) {
+        String raw = issue(user, Purpose.PASSWORD_RESET, SET_PASSWORD_TTL, now);
+        emails.setPassword(user.getEmail(), raw);
     }
 
     @Transactional

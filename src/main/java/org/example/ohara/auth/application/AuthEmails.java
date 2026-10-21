@@ -41,6 +41,12 @@ public class AuthEmails {
                 + "\n\nThe link expires in 30 minutes. If you didn't ask for this, ignore this email.");
     }
 
+    void setPassword(String to, String rawToken) {
+        send(to, "set-password:" + SecretTokens.sha256(rawToken), "Your Ohara account is ready",
+            "An account was created for you on Ohara. Choose a password to sign in:\n" + link("/reset-password", rawToken)
+                + "\n\nThe link expires in 72 hours. You can request a new one from the sign-in page.");
+    }
+
     void passwordChanged(String to) {
         send(to, null, "Your Ohara password was changed",
             "Your password was just changed and you were signed out everywhere. "

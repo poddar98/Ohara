@@ -6,25 +6,20 @@ import org.example.ohara.auth.domain.AuthIdentity;
 import org.example.ohara.auth.domain.PasswordCredential;
 import org.example.ohara.auth.domain.RefreshToken;
 import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
-import org.example.ohara.auth.infrastructure.persistence.AuthIdentityRepository;
 import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
-import org.example.ohara.user.domain.UserProfile;
-import org.example.ohara.user.domain.UserRole;
 import org.example.ohara.user.domain.UserStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,10 +27,9 @@ import java.util.UUID;
 public class AuthService {
 
     private final UserService userService;
-    private final AuthIdentityRepository authIdentityRepository;
+    private final AccountProvisioning accountProvisioning;
     private final PasswordCredentialRepository passwordCredentialRepository;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
     private final TokenIssuer tokenIssuer;
@@ -44,20 +38,18 @@ public class AuthService {
 
     public AuthService(
             UserService userService,
-            AuthIdentityRepository authIdentityRepository,
+            AccountProvisioning accountProvisioning,
             PasswordCredentialRepository passwordCredentialRepository,
             RefreshTokenRepository refreshTokenRepository,
-            PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
             JwtTokenProvider jwtTokenProvider,
             TokenIssuer tokenIssuer,
             AccountRecoveryService accountRecoveryService,
             AuthEmails emails) {
         this.userService = userService;
-        this.authIdentityRepository = authIdentityRepository;
+        this.accountProvisioning = accountProvisioning;
         this.passwordCredentialRepository = passwordCredentialRepository;
         this.refreshTokenRepository = refreshTokenRepository;
-        this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtTokenProvider = jwtTokenProvider;
         this.tokenIssuer = tokenIssuer;
@@ -82,18 +74,8 @@ public class AuthService {
             return;
         }
 
-        Instant now = Instant.now();
-        User user = new User(email, request.firstName(), request.lastName());
-        user.setRoles(new ArrayList<>());
-        user.setProfile(new UserProfile(user, request.firstName(), request.lastName()));
-        UserRole userRole = new UserRole("ROLE_USER");
-        userRole.setUser(user);
-        user.getRoles().add(userRole);
-
-        User saved = userService.save(user);
-        AuthIdentity authIdentity = authIdentityRepository.save(new AuthIdentity(saved, AuthIdentity.LOCAL_PROVIDER, email));
-        passwordCredentialRepository.save(new PasswordCredential(authIdentity, passwordEncoder.encode(request.password())));
-        accountRecoveryService.sendVerification(saved, now);
+        User created = accountProvisioning.createPendingAccount(email, request.firstName(), request.lastName(), request.password());
+        accountRecoveryService.sendVerification(created, Instant.now());
     }
 
     /** Unverified accounts may sign in; their tokens are limited until the email is verified. */

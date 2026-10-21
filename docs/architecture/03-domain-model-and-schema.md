@@ -136,12 +136,18 @@ Add `family_id UUID NOT NULL` (all rotations of one login share it; reuse revoke
 - **Retention:** never deleted; removal sets `left_at` → history and reports survive.
 
 ### 3.5 `invitation`
+
+> **As built (V6, 2026-10-21):** one role per invitation; optional `first_name/last_name` (prefill) and `external_ref`; `UNIQUE (organization_id, lower(email)) WHERE status='PENDING'` (re-inviting rotates the token on the same row); composite FK to `cohort(id, organization_id)`; `CHECK (cohort_id IS NULL OR role='LEARNER')`; expiry 14 days, evaluated lazily (`expireIfDue`) — no sweeper needed yet.
+
 - **Columns:** `id`; `organization_id NOT NULL FK`; `cohort_id NULL FK`; `email VARCHAR(320) NOT NULL`; `role VARCHAR(32) NOT NULL`; `token_hash VARCHAR(64) NOT NULL UNIQUE`; `status CHECK IN ('PENDING','ACCEPTED','EXPIRED','REVOKED')`; `expires_at TIMESTAMPTZ NOT NULL`; `accepted_by_user_id UUID NULL`; `accepted_at`; `bulk_import_row_id UUID NULL`; `invited_by UUID NOT NULL`; `send_count INT NOT NULL DEFAULT 0`; `last_sent_at`; audit.
 - **Constraints:** `UNIQUE (organization_id, lower(email), role) WHERE status='PENDING'` (resending reuses the row, rotating `token_hash`).
 - **Indexes:** `(organization_id, status)`; `(lower(email)) WHERE status='PENDING'` (auto-attach on signup).
 - **Expiry:** sweeper marks `EXPIRED`; acceptance checks `expires_at` regardless.
 
 ### 3.6 `bulk_import_job` / `bulk_import_row`
+
+> **As built (V6):** the CSV is uploaded directly (multipart, ≤ 1 MB / 5,000 rows, UTF-8) and parsed into rows at upload — no S3 object yet; job statuses `VALIDATED → PROCESSING → COMPLETED | COMPLETED_WITH_ERRORS`, or `CANCELLED`; row statuses add `INVALID` (rejected at upload) and `CANCELLED`; error report is generated on demand (`GET …/errors.csv`). Uniqueness on `file_sha256` excludes cancelled imports.
+
 - `bulk_import_job`: `id`; `organization_id`; `cohort_id NULL`; `uploaded_by`; `source_object_key VARCHAR(512)` (S3, private); `file_sha256 CHAR(64)`; `status CHECK IN ('UPLOADED','VALIDATING','VALIDATED','PROCESSING','COMPLETED','COMPLETED_WITH_ERRORS','FAILED','CANCELLED')`; `total_rows`, `succeeded_rows`, `failed_rows INT`; `error_report_key VARCHAR(512) NULL`; `mode CHECK IN ('INVITE','CREATE_ACCOUNTS','GRANT_ACCESS')` (`GRANT_ACCESS`: contract team bulk-enrolls paid B2C learners into one `course_offering`, with a per-row `external_reference`); `course_offering_id UUID NULL` (GRANT_ACCESS only); `organization_id` nullable for GRANT_ACCESS jobs; audit. `UNIQUE (organization_id, file_sha256) WHERE status NOT IN ('FAILED','CANCELLED')` (accidental double upload).
 - `bulk_import_row`: `id`; `job_id FK`; `row_number INT`; `email`, `first_name`, `last_name`, `external_ref` (roll number, or contract/bank reference for GRANT_ACCESS); `status CHECK IN ('PENDING','INVITED','LINKED_EXISTING','CREATED','SKIPPED_DUPLICATE','FAILED')`; `error_code VARCHAR(64)`, `error_detail VARCHAR(500)`; `user_id NULL`; `invitation_id NULL`. `UNIQUE (job_id, row_number)`; index `(job_id, status)`. Rows retained 90 days, then purged (job summary kept).
 
@@ -354,7 +360,8 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 |---|---|---|
 | V3__identity_hardening ✅ (2026-10-21) | `TIMESTAMP`→`TIMESTAMPTZ`, cascades → RESTRICT, `users.status` CHECK (+ `INACTIVE→DEACTIVATED`), `auth_version`, `lower(email)` unique index, partial index `refresh_token(user_id) WHERE revoked_at IS NULL` | Applied to dev + test DBs; entities now use `Instant`. |
 | V3_1__account_lifecycle ✅ (2026-10-21) | `email_verified_at` (existing ACTIVE users backfilled), status default `PENDING_VERIFICATION`, `one_time_token` (EMAIL_VERIFICATION, PASSWORD_RESET), `password_credential.failed_attempts/locked_until` | Applied to dev + test DBs. `user_consent` and `refresh_token.family_id` deferred until consents / per-device sessions are built. |
-| V5__organization ✅ (2026-10-21) | organization, organization_membership (+ `_role`), cohort, cohort_membership (composite FK keeps placements inside the cohort's org) | Applied. invitation + bulk_import_* come with the invitations slice. |
+| V5__organization ✅ (2026-10-21) | organization, organization_membership (+ `_role`), cohort, cohort_membership (composite FK keeps placements inside the cohort's org) | Applied. |
+| V6__invitation_and_bulk_import ✅ (2026-10-21) | invitation, bulk_import_job, bulk_import_row | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

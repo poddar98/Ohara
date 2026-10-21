@@ -6,7 +6,6 @@ import org.example.ohara.auth.domain.AuthIdentity;
 import org.example.ohara.auth.domain.PasswordCredential;
 import org.example.ohara.auth.domain.RefreshToken;
 import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
-import org.example.ohara.auth.infrastructure.persistence.AuthIdentityRepository;
 import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
 import org.example.ohara.common.web.ApiException;
@@ -18,7 +17,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
@@ -32,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,10 +37,9 @@ import static org.mockito.Mockito.when;
 class AuthServiceTest {
 
     private UserService userService;
-    private AuthIdentityRepository authIdentityRepository;
+    private AccountProvisioning accountProvisioning;
     private PasswordCredentialRepository passwordCredentialRepository;
     private RefreshTokenRepository refreshTokenRepository;
-    private PasswordEncoder passwordEncoder;
     private AuthenticationManager authenticationManager;
     private JwtTokenProvider jwtTokenProvider;
     private AccountRecoveryService accountRecoveryService;
@@ -53,10 +49,9 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         userService = mock(UserService.class);
-        authIdentityRepository = mock(AuthIdentityRepository.class);
+        accountProvisioning = mock(AccountProvisioning.class);
         passwordCredentialRepository = mock(PasswordCredentialRepository.class);
         refreshTokenRepository = mock(RefreshTokenRepository.class);
-        passwordEncoder = mock(PasswordEncoder.class);
         authenticationManager = mock(AuthenticationManager.class);
         accountRecoveryService = mock(AccountRecoveryService.class);
         emails = mock(AuthEmails.class);
@@ -68,10 +63,9 @@ class AuthServiceTest {
 
         authService = new AuthService(
             userService,
-            authIdentityRepository,
+            accountProvisioning,
             passwordCredentialRepository,
             refreshTokenRepository,
-            passwordEncoder,
             authenticationManager,
             jwtTokenProvider,
             new TokenIssuer(jwtTokenProvider, refreshTokenRepository),
@@ -95,18 +89,15 @@ class AuthServiceTest {
     }
 
     @Test
-    void registerCreatesPendingUserWithCredentialAndSendsVerification() {
+    void registerCreatesAPendingAccountAndSendsVerification() {
+        User created = existingUser(UserStatus.PENDING_VERIFICATION);
         when(userService.findByEmail("user@example.com")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("secret1234")).thenReturn("encoded-password");
-        when(userService.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(authIdentityRepository.save(any(AuthIdentity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(accountProvisioning.createPendingAccount("user@example.com", "Ada", "Lovelace", "secret1234")).thenReturn(created);
 
         authService.register(new RegisterRequest("Ada", "Lovelace", " User@Example.com ", "secret1234"));
 
-        verify(userService).save(org.mockito.ArgumentMatchers.argThat(user ->
-            user.getEmail().equals("user@example.com") && user.getStatus() == UserStatus.PENDING_VERIFICATION));
-        verify(passwordCredentialRepository).save(any(PasswordCredential.class));
-        verify(accountRecoveryService).sendVerification(any(User.class), any(Instant.class));
+        verify(accountProvisioning).createPendingAccount("user@example.com", "Ada", "Lovelace", "secret1234");
+        verify(accountRecoveryService).sendVerification(eq(created), any(Instant.class));
         verifyNoInteractions(refreshTokenRepository);
     }
 
@@ -117,8 +108,7 @@ class AuthServiceTest {
         authService.register(new RegisterRequest("Ada", "Lovelace", "ada@example.com", "secret1234"));
 
         verify(emails).accountAlreadyExists("ada@example.com");
-        verify(userService, never()).save(any());
-        verifyNoInteractions(passwordCredentialRepository);
+        verifyNoInteractions(accountProvisioning);
     }
 
     @Test
@@ -128,7 +118,7 @@ class AuthServiceTest {
         authService.register(new RegisterRequest("Ada", "Lovelace", "ada@example.com", "secret1234"));
 
         verify(accountRecoveryService).resendVerification("ada@example.com");
-        verify(userService, never()).save(any());
+        verifyNoInteractions(accountProvisioning);
     }
 
     @Test

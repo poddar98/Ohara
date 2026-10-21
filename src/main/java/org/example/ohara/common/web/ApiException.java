@@ -59,6 +59,12 @@ public abstract class ApiException extends RuntimeException {
         }
     }
 
+    public static class TooManyRequests extends ApiException {
+        public TooManyRequests(String code, String message) {
+            super(HttpStatus.TOO_MANY_REQUESTS, code, message);
+        }
+    }
+
     public static class Gone extends ApiException {
         public Gone(String code, String message) {
             super(HttpStatus.GONE, code, message);

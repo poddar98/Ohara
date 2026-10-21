@@ -11,11 +11,10 @@ import org.example.ohara.auth.api.dto.TokenRequest;
 import org.example.ohara.auth.application.AccountRecoveryService;
 import org.example.ohara.auth.application.AuthService;
 import org.example.ohara.auth.application.IssuedTokens;
+import org.example.ohara.auth.application.RefreshCookies;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.CookieValue;
@@ -24,27 +23,22 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Locale;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    static final String REFRESH_COOKIE = "refresh_token";
-    private static final String COOKIE_PATH = "/api/auth";
+    static final String REFRESH_COOKIE = RefreshCookies.NAME;
 
     private final AuthService authService;
     private final AccountRecoveryService accountRecoveryService;
-    private final boolean cookieSecure;
+    private final RefreshCookies refreshCookies;
 
-    public AuthController(AuthService authService,
-                          AccountRecoveryService accountRecoveryService,
-                          @Value("${auth.refresh-cookie.secure:true}") boolean cookieSecure) {
+    public AuthController(AuthService authService, AccountRecoveryService accountRecoveryService, RefreshCookies refreshCookies) {
         this.authService = authService;
         this.accountRecoveryService = accountRecoveryService;
-        this.cookieSecure = cookieSecure;
+        this.refreshCookies = refreshCookies;
     }
 
     @PostMapping("/register")
@@ -107,25 +101,14 @@ public class AuthController {
     }
 
     private ResponseEntity<AuthResponse> withRefreshCookie(IssuedTokens tokens) {
-        Duration maxAge = Duration.between(Instant.now(), tokens.refreshExpiresAt());
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, refreshCookie(tokens.refreshToken(), maxAge).toString())
+            .header(HttpHeaders.SET_COOKIE, refreshCookies.issue(tokens).toString())
             .body(new AuthResponse(tokens.accessToken(), "Bearer", tokens.email()));
     }
 
     private ResponseEntity<Void> clearedCookie() {
         return ResponseEntity.noContent()
-            .header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
-            .build();
-    }
-
-    private ResponseCookie refreshCookie(String value, Duration maxAge) {
-        return ResponseCookie.from(REFRESH_COOKIE, value)
-            .httpOnly(true)
-            .secure(cookieSecure)
-            .sameSite("Strict")
-            .path(COOKIE_PATH)
-            .maxAge(maxAge)
+            .header(HttpHeaders.SET_COOKIE, refreshCookies.clear().toString())
             .build();
     }
 }

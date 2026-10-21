@@ -70,7 +70,7 @@ Endpoints marked **(A)** write `audit_event`.
 
 ## 3. Organizations, members, cohorts, invitations, imports
 
-*Built 2026-10-21 (R1 slice 4): admin org create/list/status (`PUT /api/admin/organizations/{orgId}/status`), `GET/PATCH /api/orgs/{orgId}`, members list (page/size, role/status filters) / add existing account / patch roles-status-externalRef, `GET /api/users/me/organizations`, cohorts CRUD, cohort members list/add/remove/transfer. Pagination is `page`/`size` (max 200) rather than cursors for now. Invitations, imports and reports are next.*
+*Built 2026-10-21 (R1 slice 4): admin org create/list/status (`PUT /api/admin/organizations/{orgId}/status`), `GET/PATCH /api/orgs/{orgId}`, members list (page/size, role/status filters) / add existing account / patch roles-status-externalRef, `GET /api/users/me/organizations`, cohorts CRUD, cohort members list/add/remove/transfer. Pagination is `page`/`size` (max 200) rather than cursors for now. Invitations (`POST/GET /api/orgs/{orgId}/invitations`, `…/{id}/resend|revoke`, public `GET /api/invitations/{token}`, `POST …/accept`) and imports (multipart `POST /api/orgs/{orgId}/imports?mode=INVITE|CREATE_ACCOUNTS&cohortId`, `GET …`, `…/{id}/rows`, `…/{id}/errors.csv`, `…/{id}/confirm|cancel`) built in R1 slice 5. Reports are next.*
 
 All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) unless noted. Cross-org id → 404.
 

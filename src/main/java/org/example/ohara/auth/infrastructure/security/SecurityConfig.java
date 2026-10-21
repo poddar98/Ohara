@@ -34,7 +34,7 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/logout-all").authenticated()
-                .requestMatchers("/api/health", "/api/auth/**", "/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/api/health", "/api/auth/**", "/api/invitations/**", "/actuator/health", "/actuator/info").permitAll()
                 // Unverified sessions can see who they are and nothing else.
                 .requestMatchers(HttpMethod.GET, "/api/users/me").authenticated()
                 .anyRequest().hasAuthority(JwtAuthenticationFilter.FULL_SCOPE))
