@@ -1,5 +1,6 @@
 package org.example.ohara.auth.infrastructure.security;
 
+import org.example.ohara.auth.domain.AuthIdentity;
 import org.example.ohara.auth.domain.PasswordCredential;
 import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.user.application.UserService;
@@ -13,6 +14,9 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
+
+/** Loads a user for password login. Username is the email; only ACTIVE accounts can authenticate. */
 @Service
 public class AppUserDetailsService implements UserDetailsService {
 
@@ -27,10 +31,12 @@ public class AppUserDetailsService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String username) {
-        User user = userService.findByEmail(username)
-            .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+        String email = username.toLowerCase(Locale.ROOT);
+        User user = userService.findByEmail(email)
+            .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        String password = passwordCredentialRepository.findByAuthIdentityUserEmail(username)
+        String password = passwordCredentialRepository
+            .findByAuthIdentityProviderAndAuthIdentityIdentifier(AuthIdentity.LOCAL_PROVIDER, email)
             .map(PasswordCredential::getEncodedPassword)
             .orElse("");
 
@@ -41,7 +47,7 @@ public class AppUserDetailsService implements UserDetailsService {
                 .map(name -> name.startsWith("ROLE_") ? name : "ROLE_" + name)
                 .map(SimpleGrantedAuthority::new)
                 .toList())
-            .accountLocked(user.getStatus() != UserStatus.ACTIVE)
+            .accountLocked(user.getStatus() == UserStatus.SUSPENDED)
             .disabled(user.getStatus() != UserStatus.ACTIVE)
             .build();
     }

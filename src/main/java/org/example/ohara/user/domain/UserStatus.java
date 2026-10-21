@@ -1,7 +1,9 @@
 package org.example.ohara.user.domain;
 
 public enum UserStatus {
+    PENDING_VERIFICATION,
     ACTIVE,
-    INACTIVE,
-    SUSPENDED
+    SUSPENDED,
+    DEACTIVATED,
+    ANONYMIZED
 }

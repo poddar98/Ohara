@@ -14,7 +14,7 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Setter;
 import org.example.ohara.user.domain.User;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -23,6 +23,8 @@ import java.util.UUID;
     uniqueConstraints = @UniqueConstraint(columnNames = {"provider", "identifier"})
 )
 public class AuthIdentity {
+
+    public static final String LOCAL_PROVIDER = "local";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -39,7 +41,7 @@ public class AuthIdentity {
     private String identifier;
 
     @Column
-    private LocalDateTime verifiedAt;
+    private Instant verifiedAt;
 
     @Setter
     @OneToOne(mappedBy = "authIdentity", fetch = FetchType.LAZY)
@@ -82,11 +84,11 @@ public class AuthIdentity {
         this.identifier = identifier;
     }
 
-    public LocalDateTime getVerifiedAt() {
+    public Instant getVerifiedAt() {
         return verifiedAt;
     }
 
-    public void setVerifiedAt(LocalDateTime verifiedAt) {
+    public void setVerifiedAt(Instant verifiedAt) {
         this.verifiedAt = verifiedAt;
     }
 

@@ -93,16 +93,17 @@ class AuthFlowIntegrationTest {
         String newRefreshToken = refreshCookie(rotated);
 
         // Reusing the old refresh token is rejected...
-        assertThat(refresh(refreshToken).getResponse().getStatus()).isEqualTo(400);
+        assertThat(refresh(refreshToken).getResponse().getStatus()).isEqualTo(401);
 
         // ...and reuse revokes every active session, including the newly issued one.
-        assertThat(refresh(newRefreshToken).getResponse().getStatus()).isEqualTo(400);
+        assertThat(refresh(newRefreshToken).getResponse().getStatus()).isEqualTo(401);
     }
 
     @Test
     void refreshWithoutCookieIsRejected() throws Exception {
         mockMvc.perform(post("/api/auth/refresh"))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("refresh_token_missing"));
     }
 
     @Test
@@ -116,12 +117,79 @@ class AuthFlowIntegrationTest {
         assertThat(cleared.getValue()).isEmpty();
         assertThat(cleared.getMaxAge()).isZero();
 
-        assertThat(refresh(refreshToken).getResponse().getStatus()).isEqualTo(400);
+        assertThat(refresh(refreshToken).getResponse().getStatus()).isEqualTo(401);
     }
 
     @Test
     void protectedEndpointRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/users/me"))
-            .andExpect(status().is4xxClientError());
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void refreshTokenReuseAlsoInvalidatesOutstandingAccessTokens() throws Exception {
+        MvcResult registered = register(newEmail());
+        String accessToken = accessToken(registered);
+        String refreshToken = refreshCookie(registered);
+
+        refresh(refreshToken);
+        refresh(refreshToken); // reuse → all sessions revoked, auth_version bumped
+
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void registeringAnExistingEmailInAnyCaseIsAConflict() throws Exception {
+        String email = newEmail();
+        register(email);
+
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(registerJson(email.toUpperCase())))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("email_already_registered"))
+            .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    void loginIsCaseInsensitiveOnEmail() throws Exception {
+        String email = newEmail();
+        register(email);
+
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"secret1234"}
+                    """.formatted(email.toUpperCase())))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email").value(email));
+    }
+
+    @Test
+    void wrongPasswordIsUnauthorizedProblem() throws Exception {
+        String email = newEmail();
+        register(email);
+
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"wrong-password"}
+                    """.formatted(email)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("invalid_credentials"));
+    }
+
+    @Test
+    void validationErrorsAreProblemDetailsWithFieldErrors() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"firstName":"","lastName":"L","email":"not-an-email","password":"short"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("validation_failed"))
+            .andExpect(jsonPath("$.errors[?(@.field == 'email')]").exists())
+            .andExpect(jsonPath("$.errors[?(@.field == 'password')]").exists());
     }
 }

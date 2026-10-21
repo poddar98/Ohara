@@ -12,7 +12,7 @@ This document records only what the repository actually contains. Recommendation
 - **[Fact]** Top-level modules under `org.example.ohara`: `auth`, `user`, `common`. Each uses the layered sub-packages `api / application / domain / infrastructure`.
 - **[Fact]** Boundaries are verified by `src/test/java/org/example/ohara/ModularityTests.java` (`ApplicationModules.of(OharaApplication.class).verify()`).
 - **[Fact]** `user` publishes two named interfaces: `user.domain` (`@NamedInterface("domain")`) and `user.application` (`@NamedInterface("application")`). `auth` depends on `user` through `UserService` and the `User`/`UserRole` entities.
-- **[Fact]** The intended direction is captured in `src/main/resources/initial_prompt.md`: modular monolith (explicitly "not microservices"), planned modules `course, content, enrollment, video, progress, cart, order, payment, bulkimport, notification`, video bytes never routed through Spring Boot, mock adapters for AWS/payments until accounts exist, Kafka/Debezium "later".
+- **[Fact]** The intended direction is captured in `docs/prompts/initial_prompt.md` (moved from `src/main/resources`): modular monolith (explicitly "not microservices"), planned modules `course, content, enrollment, video, progress, cart, order, payment, bulkimport, notification`, video bytes never routed through Spring Boot, mock adapters for AWS/payments until accounts exist, Kafka/Debezium "later".
 
 ## 2. Technology stack and versions
 

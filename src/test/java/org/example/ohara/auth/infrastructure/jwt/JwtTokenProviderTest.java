@@ -6,7 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,6 +26,7 @@ class JwtTokenProviderTest {
 
     private User newUser() {
         User user = new User("ada@example.com", "Ada", "Lovelace");
+        ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
         UserRole role = new UserRole("ROLE_USER");
         role.setUser(user);
         user.getRoles().add(role);
@@ -32,12 +34,16 @@ class JwtTokenProviderTest {
     }
 
     @Test
-    void generatesAndValidatesToken() {
-        String token = jwtTokenProvider.generateAccessToken(newUser());
+    void accessTokenCarriesUserIdEmailRolesAndAuthVersion() {
+        User user = newUser();
+        user.bumpAuthVersion();
 
-        assertThat(token).isNotBlank();
-        assertThat(jwtTokenProvider.validateToken(token)).isTrue();
-        assertThat(jwtTokenProvider.getUsernameFromToken(token)).isEqualTo("ada@example.com");
+        var claims = jwtTokenProvider.parseAccessToken(jwtTokenProvider.generateAccessToken(user)).orElseThrow();
+
+        assertThat(claims.actor().userId()).isEqualTo(user.getId());
+        assertThat(claims.actor().email()).isEqualTo("ada@example.com");
+        assertThat(claims.actor().platformRoles()).containsExactly("ROLE_USER");
+        assertThat(claims.authVersion()).isEqualTo(1);
     }
 
     @Test
@@ -70,13 +76,13 @@ class JwtTokenProviderTest {
     void expirationIsInTheFuture() {
         String refreshToken = jwtTokenProvider.generateRefreshToken(newUser());
 
-        assertThat(jwtTokenProvider.getExpiration(refreshToken)).isAfter(LocalDateTime.now());
+        assertThat(jwtTokenProvider.getExpiration(refreshToken)).isAfter(Instant.now());
     }
 
     @Test
     void tamperedTokenIsRejected() {
         String token = jwtTokenProvider.generateAccessToken(newUser());
 
-        assertThat(jwtTokenProvider.validateToken(token + "x")).isFalse();
+        assertThat(jwtTokenProvider.validateAccessToken(token + "x")).isFalse();
     }
 }

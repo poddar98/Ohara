@@ -6,6 +6,7 @@ import org.example.ohara.auth.api.dto.LoginRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
 import org.example.ohara.auth.application.AuthService;
 import org.example.ohara.auth.application.IssuedTokens;
+import org.example.ohara.common.web.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -17,7 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -49,7 +50,7 @@ public class AuthController {
     public ResponseEntity<AuthResponse> refresh(
             @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
         if (refreshToken == null) {
-            throw new IllegalArgumentException("Refresh token cookie is missing");
+            throw new ApiException.Unauthenticated("refresh_token_missing", "Refresh token cookie is missing");
         }
         return withRefreshCookie(authService.refresh(refreshToken));
     }
@@ -66,7 +67,7 @@ public class AuthController {
     }
 
     private ResponseEntity<AuthResponse> withRefreshCookie(IssuedTokens tokens) {
-        Duration maxAge = Duration.between(LocalDateTime.now(), tokens.refreshExpiresAt());
+        Duration maxAge = Duration.between(Instant.now(), tokens.refreshExpiresAt());
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, refreshCookie(tokens.refreshToken(), maxAge).toString())
             .body(new AuthResponse(tokens.accessToken(), "Bearer", tokens.email()));

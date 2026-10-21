@@ -4,7 +4,7 @@ Status: **Proposed** · 2026-10-21
 
 ## 0. Numbering reconciliation
 
-`src/main/resources/initial_prompt.md` numbers the project's own phases: 1 Foundation ✅, 2 User + Auth ✅, 3 Course + Content + Enrollment, 4 Video metadata + progress, 5 S3/MediaConvert/CloudFront, 6 Cart + Redis, 7 Order/checkout, 8 Payments, 9 Async imports, 10 Kafka/Debezium, 11 Virtual-thread experiments, 12 Observability.
+`docs/prompts/initial_prompt.md` (moved from `src/main/resources`) numbers the project's own phases: 1 Foundation ✅, 2 User + Auth ✅, 3 Course + Content + Enrollment, 4 Video metadata + progress, 5 S3/MediaConvert/CloudFront, 6 Cart + Redis, 7 Order/checkout, 8 Payments, 9 Async imports, 10 Kafka/Debezium, 11 Virtual-thread experiments, 12 Observability.
 
 This roadmap uses the architecture prompt's **R0–R6** and maps to them:
 

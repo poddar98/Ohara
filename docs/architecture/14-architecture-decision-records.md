@@ -68,8 +68,8 @@ Format: Context · Options · Decision · Rationale · Consequences. Status **Pr
 
 ## ADR-011 JWT subject = user UUID; org roles resolved server-side
 - **Context:** Current tokens use email as subject and carry global roles.
-- **Decision:** `sub`=userId, plus `email`, `ver` (auth_version), `scope`; platform roles only in token; org roles looked up per request (cached 60 s); access TTL 15 min.
-- **Consequences:** One forced re-login at rollout; email change and role changes no longer invalidate identity mapping; revocation lag ≈ 1 min.
+- **Decision:** `sub`=userId, plus `email`, `ver` (auth_version), `scope`; platform roles only in token; org roles looked up per request; access TTL 15 min; `ver` + account status checked against the DB on each request (implemented in R1 slice 1).
+- **Consequences:** One forced re-login at rollout; email change and role changes no longer invalidate identity mapping; revocation is immediate at the cost of one PK lookup per request.
 
 ## ADR-012 No online payments; staff-granted access with offline references
 - **Context:** `initial_prompt.md` planned Razorpay/Cashfree. The business has confirmed (2026-10-21) that all payments and refunds — B2B and B2C — are done by the contract team by bank transfer.

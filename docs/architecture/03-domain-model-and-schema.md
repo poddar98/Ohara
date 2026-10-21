@@ -349,7 +349,8 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 
 | Version | Content | Risk |
 |---|---|---|
-| V3__identity_hardening | `TIMESTAMP`→`TIMESTAMPTZ` (`ALTER ... TYPE timestamptz USING col AT TIME ZONE 'UTC'`), swap cascades → RESTRICT, extend `users.status` CHECK + data map `INACTIVE→DEACTIVATED`, `lower(email)` unique index, `email_verified_at` (backfill existing users as verified — dev data only), `refresh_token.family_id` (backfill = id) + partial index, `one_time_token`, `user_consent`, `password_credential` lockout columns | Low (no prod data). Entities switch `LocalDateTime`→`Instant` in the same PR. |
+| V3__identity_hardening ✅ (2026-10-21) | `TIMESTAMP`→`TIMESTAMPTZ`, cascades → RESTRICT, `users.status` CHECK (+ `INACTIVE→DEACTIVATED`), `auth_version`, `lower(email)` unique index, partial index `refresh_token(user_id) WHERE revoked_at IS NULL` | Applied to dev + test DBs; entities now use `Instant`. |
+| V3_1__account_lifecycle | `email_verified_at`, `one_time_token`, `user_consent`, `password_credential` lockout columns; `refresh_token.family_id` only if per-device session revocation is built | Next R1 slice (verification, reset, lockout). |
 | V4__organization | organization, membership, cohort, cohort_membership, invitation, bulk_import_* | Low |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |

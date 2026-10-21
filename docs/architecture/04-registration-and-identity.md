@@ -161,7 +161,7 @@ Not self-service. Platform support tool: choose survivor & duplicate (both verif
 ## 4. Token freshness and revocation
 
 - Access token TTL reduced from 1 h to **15 min** (property change) once paid content exists.
-- `users.auth_version INT` (add in V3): incremented on password reset, logout-all, suspension, deactivation, email change. Access tokens carry `ver`; `JwtAuthenticationFilter` compares it against a per-user value cached for 60 s (Caffeine in-process; Redis only if multiple API nodes need sub-minute consistency). This bounds revocation lag to ~1 min without a DB hit per request.
+- `users.auth_version INT` (add in V3): incremented on password reset, logout-all, suspension, deactivation, email change. Access tokens carry `ver`; `JwtAuthenticationFilter` compares it — and `status = ACTIVE` — against the user row on every request (primary-key lookup, implemented 2026-10-21). Revocation is therefore immediate. If profiling shows the lookup matters, add a ≤ 60 s in-process cache (accepting that lag). Refresh-token reuse detection also bumps `auth_version`.
 - Org-role changes don't need token revocation because org roles aren't in the token.
 
 ## 5. Role matrix (summary — full permission matrix in 10 §2)

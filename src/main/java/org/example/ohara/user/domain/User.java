@@ -12,7 +12,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -39,13 +39,16 @@ public class User {
     private UserStatus status = UserStatus.ACTIVE;
 
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(nullable = false)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     @Column
-    private LocalDateTime lastLoginAt;
+    private Instant lastLoginAt;
+
+    @Column(nullable = false)
+    private int authVersion;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private UserProfile profile;
@@ -54,7 +57,7 @@ public class User {
     private List<UserRole> roles = new ArrayList<>();
 
     public User() {
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -76,7 +79,7 @@ public class User {
 
     public void setEmail(String email) {
         this.email = email;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
     }
 
     public String getFirstName() {
@@ -85,7 +88,7 @@ public class User {
 
     public void setFirstName(String firstName) {
         this.firstName = firstName;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
     }
 
     public String getLastName() {
@@ -94,7 +97,7 @@ public class User {
 
     public void setLastName(String lastName) {
         this.lastName = lastName;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
     }
 
     public UserStatus getStatus() {
@@ -103,24 +106,38 @@ public class User {
 
     public void setStatus(UserStatus status) {
         this.status = status;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Instant getUpdatedAt() {
         return updatedAt;
     }
 
-    public LocalDateTime getLastLoginAt() {
+    public Instant getLastLoginAt() {
         return lastLoginAt;
     }
 
-    public void setLastLoginAt(LocalDateTime lastLoginAt) {
+    public void setLastLoginAt(Instant lastLoginAt) {
         this.lastLoginAt = lastLoginAt;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
+    }
+
+    public int getAuthVersion() {
+        return authVersion;
+    }
+
+    /** Invalidates every access token issued so far for this user. */
+    public void bumpAuthVersion() {
+        this.authVersion++;
+        this.updatedAt = Instant.now();
+    }
+
+    public boolean isActive() {
+        return status == UserStatus.ACTIVE;
     }
 
     public UserProfile getProfile() {

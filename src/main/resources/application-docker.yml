@@ -4,7 +4,7 @@ spring:
   datasource:
     url: jdbc:postgresql://postgres:5432/ohara
     username: ohara
-    password: ohara
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -30,8 +30,8 @@ server:
   port: 8080
 
 jwt:
-  secret: ohara-docker-jwt-secret-key-should-be-at-least-32-chars
-  access-token-validity-ms: 3600000
+  secret: ${JWT_SECRET}
+  access-token-validity-ms: 900000
   refresh-token-validity-ms: 604800000
 
 auth:

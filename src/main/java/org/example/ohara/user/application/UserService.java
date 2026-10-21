@@ -1,5 +1,6 @@
 package org.example.ohara.user.application;
 
+import org.example.ohara.common.web.ApiException;
 import org.example.ohara.user.api.dto.UserResponse;
 import org.example.ohara.user.domain.User;
 import org.example.ohara.user.domain.UserRole;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class UserService {
@@ -19,9 +21,9 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public UserResponse getByEmail(String email) {
-        User user = findByEmail(email)
-            .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    public UserResponse getById(UUID userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ApiException.NotFound("user_not_found", "User not found"));
 
         return new UserResponse(
             user.getId(),
@@ -33,15 +35,20 @@ public class UserService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public Optional<UserAuthState> findAuthState(UUID userId) {
+        return userRepository.findById(userId).map(user -> new UserAuthState(user.isActive(), user.getAuthVersion()));
+    }
+
     /** Used by other modules (auth) that need to look up or create users without touching the repository. */
     @Transactional(readOnly = true)
     public Optional<User> findByEmail(String email) {
-        return userRepository.findByEmail(email);
+        return userRepository.findByEmailIgnoreCase(email);
     }
 
     @Transactional(readOnly = true)
     public boolean existsByEmail(String email) {
-        return userRepository.existsByEmail(email);
+        return userRepository.existsByEmailIgnoreCase(email);
     }
 
     @Transactional

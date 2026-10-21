@@ -10,7 +10,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -29,7 +29,7 @@ public class PasswordCredential {
     private String encodedPassword;
 
     @Column(nullable = false)
-    private LocalDateTime passwordChangedAt;
+    private Instant passwordChangedAt;
 
     public PasswordCredential() {
     }
@@ -37,7 +37,7 @@ public class PasswordCredential {
     public PasswordCredential(AuthIdentity authIdentity, String encodedPassword) {
         this.authIdentity = authIdentity;
         this.encodedPassword = encodedPassword;
-        this.passwordChangedAt = LocalDateTime.now();
+        this.passwordChangedAt = Instant.now();
     }
 
     public UUID getId() {
@@ -60,11 +60,11 @@ public class PasswordCredential {
         this.encodedPassword = encodedPassword;
     }
 
-    public LocalDateTime getPasswordChangedAt() {
+    public Instant getPasswordChangedAt() {
         return passwordChangedAt;
     }
 
-    public void setPasswordChangedAt(LocalDateTime passwordChangedAt) {
+    public void setPasswordChangedAt(Instant passwordChangedAt) {
         this.passwordChangedAt = passwordChangedAt;
     }
 }

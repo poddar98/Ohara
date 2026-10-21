@@ -1,8 +1,9 @@
 package org.example.ohara.user.api;
 
+import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.user.api.dto.UserResponse;
 import org.example.ohara.user.application.UserService;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,7 +19,7 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public UserResponse me(Authentication authentication) {
-        return userService.getByEmail(authentication.getName());
+    public UserResponse me(@AuthenticationPrincipal CurrentActor actor) {
+        return userService.getById(actor.userId());
     }
 }
