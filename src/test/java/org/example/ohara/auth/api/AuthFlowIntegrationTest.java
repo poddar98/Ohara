@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.example.ohara.notification.application.EmailMessage;
 import org.example.ohara.notification.infrastructure.InMemoryEmailSender;
+import org.example.ohara.platform.jobs.internal.JobRunner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,7 +27,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * End-to-end auth flows against the real Postgres (ohara_test) with Flyway migrations applied.
- * Emails go to the in-memory mock sender, which is how tests follow verification and reset links.
+ * Emails are queued as jobs; {@link #delivered} runs the job runner and reads the in-memory mock sender,
+ * which is how tests follow verification and reset links.
  * Each test uses a fresh email so runs don't collide.
  */
 @SpringBootTest
@@ -41,6 +44,15 @@ class AuthFlowIntegrationTest {
 
     @Autowired
     private InMemoryEmailSender emails;
+
+    @Autowired
+    private JobRunner jobs;
+
+    /** Delivers queued emails, then returns everything sent to {@code email}. */
+    private List<EmailMessage> delivered(String email) {
+        jobs.drain();
+        return emails.sentTo(email);
+    }
 
     private static String newEmail() {
         return "user-" + UUID.randomUUID() + "@example.com";
@@ -63,8 +75,11 @@ class AuthFlowIntegrationTest {
     }
 
     private String tokenFromLastEmail(String email, String subjectFragment) {
-        EmailMessage message = emails.lastSentTo(email).orElseThrow();
-        assertThat(message.subject()).contains(subjectFragment);
+        // Emails are delivered concurrently, so pick the latest one of the wanted kind rather than the latest overall.
+        EmailMessage message = delivered(email).stream()
+            .filter(m -> m.subject().contains(subjectFragment))
+            .reduce((first, second) -> second)
+            .orElseThrow(() -> new AssertionError("No '" + subjectFragment + "' email sent to " + email));
         Matcher matcher = TOKEN.matcher(message.body());
         assertThat(matcher.find()).isTrue();
         return matcher.group(1);
@@ -121,7 +136,7 @@ class AuthFlowIntegrationTest {
             .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.status").value("VERIFICATION_REQUIRED"));
 
-        assertThat(emails.lastSentTo(email).orElseThrow().subject()).contains("already have");
+        assertThat(delivered(email).getLast().subject()).contains("already have");
     }
 
     @Test
@@ -314,7 +329,7 @@ class AuthFlowIntegrationTest {
             {"token":"%s","newPassword":"brand-new-pass"}
             """.formatted(resetToken)).andExpect(status().isNoContent());
 
-        assertThat(emails.lastSentTo(email).orElseThrow().subject()).contains("password was changed");
+        assertThat(delivered(email).getLast().subject()).contains("password was changed");
         me(accessToken(session)).andExpect(status().isUnauthorized());
         assertThat(refresh(refreshCookie(session)).getResponse().getStatus()).isEqualTo(401);
         login(email, PASSWORD).andExpect(status().isUnauthorized());
@@ -347,7 +362,7 @@ class AuthFlowIntegrationTest {
 
         postJson("/api/auth/forgot-password", "{\"email\":\"%s\"}".formatted(email)).andExpect(status().isAccepted());
 
-        assertThat(emails.sentTo(email)).isEmpty();
+        assertThat(delivered(email)).isEmpty();
     }
 
     // --- errors --------------------------------------------------------------------------------------

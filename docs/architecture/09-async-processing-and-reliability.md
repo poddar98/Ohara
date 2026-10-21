@@ -14,6 +14,8 @@ Status: **Proposed** · 2026-10-21 · Nothing asynchronous exists today (01 §5)
 
 ## 2. Job model
 
+*Implemented 2026-10-21 (R1 slice 3): `platform.jobs` — `JobScheduler.enqueue(JobRequest)` joins the caller's transaction; `JobHandler<P>` per type; `JobRunner` polls every 1 s (`ohara.jobs.runner-enabled`, off in tests which call `drain()`), claims ≤ `concurrency` (8) jobs with `SKIP LOCKED`, runs them on virtual threads, retries with 30 s × 2ⁿ ±50% jitter (cap 1 h), recovers expired leases; admin API `GET /api/admin/jobs`, `POST …/{id}/retry|cancel`. Immediate jobs take the DB clock for `run_after` (app/DB clock skew otherwise delays them). First job type: `EMAIL_SEND` (8 attempts).*
+
 ### 2.1 Claiming (worker loop)
 ```sql
 WITH next AS (

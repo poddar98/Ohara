@@ -355,7 +355,8 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |
-| V8__platform | processing_job, idempotency_key, audit_event; Modulith `event_publication` (via its schema init or explicit DDL) | Low |
+| V4__processing_job ✅ (2026-10-21) | `processing_job` (status, attempt/max_attempts, run_after, lease, payload JSONB, unique idempotency_key) + ready/running/search indexes | Applied. `external_ref`, `subject_*`, `parent_job_id`, `WAITING_EXTERNAL` are added with the first provider-backed job (R3). |
+| V8__platform | idempotency_key, audit_event; Modulith `event_publication` if module events need durability | Low |
 | V9__live | `CREATE EXTENSION btree_gist`; live_session, live_attendance | Needs extension privilege on RDS (available) |
 | V10__ai | transcript_segment, lecture_chapter, lecture_artifact | Low |
 | V11__drop_users_name_columns | after code reads names only from `user_profile` | Expand/contract: done one release later |
