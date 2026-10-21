@@ -1,6 +1,7 @@
 package org.example.ohara.common.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -30,6 +31,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ProblemDetail> handleApi(ApiException ex, HttpServletRequest request) {
         return problem(ex.getStatus(), ex.getCode(), ex.getMessage(), request);
+    }
+
+    /** Safety net for races that slip past service-level checks (e.g. two concurrent inserts of the same unique row). */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ProblemDetail> handleIntegrity(DataIntegrityViolationException ex, HttpServletRequest request) {
+        logger.warn("Constraint violation on " + request.getRequestURI() + ": " + ex.getMostSpecificCause().getMessage());
+        return problem(HttpStatus.CONFLICT, "conflict", "The request conflicts with the current state of the resource", request);
     }
 
     @ExceptionHandler(AuthenticationException.class)

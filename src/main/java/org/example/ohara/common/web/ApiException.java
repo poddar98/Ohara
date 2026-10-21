@@ -52,6 +52,13 @@ public abstract class ApiException extends RuntimeException {
         }
     }
 
+    /** Well-formed request that can't be applied to the current state (e.g. referenced user isn't registered). */
+    public static class Unprocessable extends ApiException {
+        public Unprocessable(String code, String message) {
+            super(HttpStatus.UNPROCESSABLE_CONTENT, code, message);
+        }
+    }
+
     public static class Gone extends ApiException {
         public Gone(String code, String message) {
             super(HttpStatus.GONE, code, message);

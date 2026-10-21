@@ -1,17 +1,17 @@
 package org.example.ohara.platform.jobs.internal;
 
-import com.jayway.jsonpath.JsonPath;
 import org.example.ohara.platform.jobs.JobHandler;
 import org.example.ohara.platform.jobs.JobRequest;
 import org.example.ohara.platform.jobs.JobScheduler;
 import org.example.ohara.platform.jobs.NonRetryableJobException;
+import org.example.ohara.support.TestUsers;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
@@ -19,6 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +89,12 @@ class JobRunnerIntegrationTest {
     @Autowired TransactionTemplate tx;
     @Autowired MockMvc mockMvc;
     @Autowired PasswordEncoder passwordEncoder;
+    TestUsers users;
+
+    @BeforeEach
+    void setUpUsers() {
+        users = new TestUsers(jdbc, passwordEncoder, mockMvc);
+    }
 
     private static String key() {
         return "test-" + UUID.randomUUID();
@@ -231,7 +238,7 @@ class JobRunnerIntegrationTest {
         CountDownLatch start = new CountDownLatch(1);
         List<Future<List<JobRecord>>> results;
         try (ExecutorService pool = Executors.newFixedThreadPool(workers)) {
-            results = new java.util.ArrayList<>();
+            results = new ArrayList<>();
             for (int w = 0; w < workers; w++) {
                 String worker = "worker-" + w;
                 results.add(pool.submit(() -> {
@@ -262,11 +269,10 @@ class JobRunnerIntegrationTest {
         runner.drain();
         UUID jobId = job(key).id();
 
-        String userToken = tokenFor(false);
-        mockMvc.perform(get("/api/admin/jobs").header("Authorization", "Bearer " + userToken))
+        mockMvc.perform(get("/api/admin/jobs").header("Authorization", users.user().bearer()))
             .andExpect(status().isForbidden());
 
-        String adminToken = tokenFor(true);
+        String adminToken = users.platformAdmin().token();
         mockMvc.perform(get("/api/admin/jobs").param("type", POISON).param("status", "FAILED")
                 .header("Authorization", "Bearer " + adminToken))
             .andExpect(status().isOk())
@@ -280,33 +286,5 @@ class JobRunnerIntegrationTest {
         mockMvc.perform(post("/api/admin/jobs/{id}/retry", jobId).header("Authorization", "Bearer " + adminToken))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("job_not_retryable"));
-    }
-
-    /** Creates a verified user directly in the DB (optionally a platform admin) and logs in. */
-    private String tokenFor(boolean admin) throws Exception {
-        UUID userId = UUID.randomUUID();
-        String email = "jobs-" + userId + "@example.com";
-        jdbc.sql("""
-                INSERT INTO users (id, email, first_name, last_name, status, email_verified_at)
-                VALUES (:id, :email, 'Ops', 'User', 'ACTIVE', now())
-                """).param("id", userId).param("email", email).update();
-        jdbc.sql("INSERT INTO user_profile (user_id, display_name, first_name, last_name) VALUES (:id, 'Ops User', 'Ops', 'User')")
-            .param("id", userId).update();
-        jdbc.sql("INSERT INTO user_role (id, user_id, name) VALUES (:rid, :id, 'ROLE_USER')")
-            .param("rid", UUID.randomUUID()).param("id", userId).update();
-        if (admin) {
-            jdbc.sql("INSERT INTO user_role (id, user_id, name) VALUES (:rid, :id, 'ROLE_PLATFORM_ADMIN')")
-                .param("rid", UUID.randomUUID()).param("id", userId).update();
-        }
-        UUID identityId = UUID.randomUUID();
-        jdbc.sql("INSERT INTO auth_identity (id, user_id, provider, identifier, verified_at) VALUES (:iid, :id, 'local', :email, now())")
-            .param("iid", identityId).param("id", userId).param("email", email).update();
-        jdbc.sql("INSERT INTO password_credential (id, auth_identity_id, encoded_password) VALUES (:cid, :iid, :pw)")
-            .param("cid", UUID.randomUUID()).param("iid", identityId).param("pw", passwordEncoder.encode("secret1234")).update();
-
-        String body = mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"%s\",\"password\":\"secret1234\"}".formatted(email)))
-            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$.accessToken");
     }
 }

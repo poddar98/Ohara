@@ -115,7 +115,10 @@ Add `family_id UUID NOT NULL` (all rotations of one login share it; reuse revoke
 - **Columns:** `id UUID PK`; `name VARCHAR(200) NOT NULL`; `slug VARCHAR(64) NOT NULL UNIQUE`; `type VARCHAR(32) NOT NULL CHECK IN ('COLLEGE','CORPORATE','OTHER')`; `status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE' CHECK IN ('ACTIVE','SUSPENDED','ARCHIVED')`; `allowed_email_domains TEXT[] NULL` (optional auto-match on invite acceptance); `settings JSONB NOT NULL DEFAULT '{}'` (branding, default access duration); `contract_ref VARCHAR(128) NULL`; audit columns.
 - **Cardinality:** tens. **Tenant:** is the tenant root. **Retention:** archive, never delete.
 
-### 3.2 `organization_membership`
+### 3.2 `organization_membership` (+ `organization_membership_role`)
+
+> **As built (V5, 2026-10-21):** one row per *(organization, user)* — `UNIQUE (organization_id, user_id)` — with roles in a child table `organization_membership_role(membership_id, role)`; `status ∈ {ACTIVE, SUSPENDED, REMOVED}` (INVITED lives on `invitation`). Suspension/removal therefore applies to the person, member lists page cleanly, and the last-admin rule is one count. The per-role design below is superseded.
+
 - **Purpose:** a user's relationship with an org and their org-scoped role(s).
 - **Columns:** `id UUID PK`; `organization_id UUID NOT NULL FK`; `user_id UUID NOT NULL FK`; `role VARCHAR(32) NOT NULL CHECK IN ('ORG_ADMIN','INSTRUCTOR','LEARNER')`; `status VARCHAR(32) NOT NULL CHECK IN ('INVITED','ACTIVE','SUSPENDED','REMOVED')`; `external_ref VARCHAR(64) NULL` (college roll number); `joined_at`, `removed_at TIMESTAMPTZ NULL`; audit columns.
 - **Constraints:** `UNIQUE (organization_id, user_id, role)` — a person can be both INSTRUCTOR and LEARNER in one org as two rows. `UNIQUE (organization_id, external_ref) WHERE external_ref IS NOT NULL`.
@@ -351,7 +354,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 |---|---|---|
 | V3__identity_hardening ✅ (2026-10-21) | `TIMESTAMP`→`TIMESTAMPTZ`, cascades → RESTRICT, `users.status` CHECK (+ `INACTIVE→DEACTIVATED`), `auth_version`, `lower(email)` unique index, partial index `refresh_token(user_id) WHERE revoked_at IS NULL` | Applied to dev + test DBs; entities now use `Instant`. |
 | V3_1__account_lifecycle ✅ (2026-10-21) | `email_verified_at` (existing ACTIVE users backfilled), status default `PENDING_VERIFICATION`, `one_time_token` (EMAIL_VERIFICATION, PASSWORD_RESET), `password_credential.failed_attempts/locked_until` | Applied to dev + test DBs. `user_consent` and `refresh_token.family_id` deferred until consents / per-device sessions are built. |
-| V4__organization | organization, membership, cohort, cohort_membership, invitation, bulk_import_* | Low |
+| V5__organization ✅ (2026-10-21) | organization, organization_membership (+ `_role`), cohort, cohort_membership (composite FK keeps placements inside the cohort's org) | Applied. invitation + bulk_import_* come with the invitations slice. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |
