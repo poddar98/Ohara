@@ -1,0 +1,144 @@
+# 12 — Implementation Roadmap
+
+Status: **Proposed** · 2026-10-21
+
+## 0. Numbering reconciliation
+
+`src/main/resources/initial_prompt.md` numbers the project's own phases: 1 Foundation ✅, 2 User + Auth ✅, 3 Course + Content + Enrollment, 4 Video metadata + progress, 5 S3/MediaConvert/CloudFront, 6 Cart + Redis, 7 Order/checkout, 8 Payments, 9 Async imports, 10 Kafka/Debezium, 11 Virtual-thread experiments, 12 Observability.
+
+This roadmap uses the architecture prompt's **R0–R6** and maps to them:
+
+| Roadmap | Covers original phases | Notes |
+|---|---|---|
+| R0 Assessment & design | — | This document set |
+| R1 Identity & institutional foundation | (2 hardening) + 9 (imports) | |
+| R2 Catalog, enrollment, B2C checkout | 3, 4 (progress), 7, 8 | Cart (6) folded in: single-course checkout needs no cart; a Redis cart is an optional learning exercise, not on the critical path |
+| R3 Video upload & playback | 4, 5 | |
+| R4 Live classes | new | |
+| R5 AI learning features | new | |
+| R6 Scale, cost & hardening | 11, 12 | Kafka/Debezium (10) only if a trigger in ADR-008 fires |
+
+Each phase ships behind mock adapters first, then real providers in a `dev` AWS account.
+
+---
+
+## R0 — Repository assessment and design (this deliverable)
+- **Objective:** agreed architecture, schema and roadmap.
+- **Done when:** docs 01–14 reviewed; open questions Q-01…Q-08 (13) answered or explicitly deferred; ADRs accepted.
+- **Out of scope:** code changes.
+
+## R1 — Identity and institutional foundation
+- **Objective:** one identity per human, verified email, org/cohort model, org-scoped authorization, invitations, bulk import.
+- **Dependencies:** R0; email provider choice (Q-06) — mock until then.
+- **DB:** V3 identity hardening, V4 organization, V8 platform (`processing_job`, `idempotency_key`, `audit_event`, Modulith `event_publication`).
+- **API:** 08 §2 and §3.
+- **Infra:** none mandatory (mock email); add `spring-modulith-starter-jdbc`; Testcontainers for ITs.
+- **Tasks:**
+  1. Problem-details error model + typed exceptions; replace `IllegalArgumentException` usage (D3).
+  2. `TIMESTAMPTZ`/`Instant` migration; RESTRICT FKs; statuses; `lower(email)` index (D1, D4).
+  3. JWT `sub`=userId, `ver`, `scope`; `CurrentActor`; access TTL 15 min; `auth_version` check (D2, D11).
+  4. Verification, resend, forgot/reset, logout-all, lockout/rate limit (D13).
+  5. `organization` module: orgs, memberships, cohorts, invitations, `OrgAuthorizationService`.
+  6. Job runner (claim/lease/backoff/DLQ semantics) + `EMAIL_SEND` + sweepers.
+  7. Bulk import (validate → confirm → process, error report).
+  8. Account deactivation/deletion/anonymization jobs; consent records.
+  9. Move secrets out of yml (D6); move prompt docs out of `src/main/resources` (D7).
+- **Testing:** unit tests per flow; Testcontainers Postgres ITs (fixes D12); tenant-isolation fixture (org A/B) started here; `ModularityTests` must pass with new modules.
+- **Acceptance criteria:**
+  - Registering an existing email returns the same response as a new one and sends a notice email (mock captures it).
+  - Unverified users can't access non-preview content or checkout (verified by test).
+  - An invited learner with an existing account joins without a new `users` row; email mismatch → 409.
+  - Removing a learner from a cohort leaves `cohort_membership` with `left_at` set and no deleted rows.
+  - Import of 5,000 rows with 3% invalid completes with an error report; re-running after a forced crash produces no duplicates.
+  - Cross-org requests on every R1 endpoint return 404.
+- **Risks:** auth refactor regressions → keep `AuthFlowIntegrationTest` green throughout; token claim change logs everyone out once (acceptable pre-launch).
+- **Out of scope:** SSO/SAML, custom roles, SMS OTP.
+
+## R2 — Course catalog, enrollment and B2C checkout
+- **Objective:** courses with versions, curriculum, B2B offerings, B2C purchase, `ContentAccessService`, progress.
+- **Dependencies:** R1 (orgs, cohorts, jobs, outbox). Payment gateway sandbox accounts (mock first). `content_asset` table exists (V6) but only documents/images upload here; videos in R3.
+- **DB:** V5 catalog, V6 content, V7 enrollment, V9 commerce.
+- **API:** 08 §4, §5 (+ document assets from §6).
+- **Infra:** S3 for documents (or mock storage); Razorpay/Cashfree sandbox.
+- **Tasks:** course/version/module/lesson/content CRUD with draft immutability trigger; publish checklist; offerings & fan-out listener; enrollment + grants; `ContentAccessService` with `checkMany`; progress API; `PaymentGateway` port + mock + Razorpay adapter; webhook verification; reconciliation job; refunds; version migration.
+- **Testing:** property tests for reorder; publish/immutability tests; entitlement matrix tests (10 §9); payment idempotency tests (duplicate/out-of-order webhooks, confirm without webhook, concurrent checkout).
+- **Acceptance criteria:**
+  - Publishing v2 leaves existing enrollments on v1; new enrollees get v2; migration preserves completion by `lesson_key`.
+  - Deleting a lesson never deletes an asset; deleting a referenced asset → 409.
+  - Same webhook delivered 5× creates exactly one `payment_transaction` and one `access_grant`.
+  - Client-reported success without gateway capture grants nothing.
+  - A user with B2B and B2C enrollments sees both, with channel shown; revoking the B2B one leaves B2C access intact.
+  - `ContentAccessService` p95 < 10 ms on a seeded DB of 50k enrollments.
+- **Risks:** curriculum versioning complexity → keep "minor publish" out until needed; gateway sandbox quirks.
+- **Out of scope:** subscriptions (until Q-01), coupons/promotions engine, certificates, assessments/question banks (separate module later).
+
+## R3 — Video upload, processing and playback
+- **Objective:** direct-to-S3 multipart upload, durable pipeline, MediaConvert HLS, CloudFront signed-cookie playback, resume.
+- **Dependencies:** R2 (lessons, `ContentAccessService`); AWS account with S3, MediaConvert, CloudFront, SQS, EventBridge, Secrets Manager (Q-04).
+- **DB:** `media_upload`, `media_rendition` (V6 if not already), job types.
+- **API:** 08 §6.
+- **Infra (IaC — Terraform or CDK):** two buckets + lifecycle + BPA; CloudFront distribution with OAC, key group, Origin Shield, WAF, alias `media.<domain>`; MediaConvert role + job template(s); EventBridge rules → SQS `media-events` + DLQ; IAM roles for api/worker.
+- **Tasks:** `ObjectStorage`, `Transcoder`, `CdnSigner`, `MediaEventSource` ports + mock + AWS adapters; upload endpoints; probe/transcode/verify jobs; reconcilers; playback session + refresh; player integration guide (hls.js); captions placeholder (VTT from R5); progress heartbeats wired to player.
+- **Testing:** mock end-to-end locally; dev-AWS smoke test with 3 sample lectures (720p, 1080p, 4:3 low-res); chaos: kill worker after MediaConvert completes → asset still becomes READY once; expired cookie → refresh → continues.
+- **Acceptance criteria:**
+  - 2 GB upload resumes after a browser refresh mid-upload.
+  - READY only after verify; a deliberately corrupted output stays non-READY and retries.
+  - Direct S3 object URL and an expired cookie both return 403; another asset's path with a valid cookie returns 403.
+  - Revoking a grant blocks playback within ≤ 20 min (cookie TTL) and immediately on refresh.
+  - Time-to-ready p95 ≤ 1× video duration + 15 min for 1-hour lectures.
+  - Measured GB per viewer-hour on the default ladder reported (feeds 11).
+- **Risks:** cookie domain/mobile player constraints (Q-11); MediaConvert Basic-tier caption limits (sidecar VTT test on iOS).
+- **Out of scope:** DRM, offline downloads, per-user watermark.
+
+## R4 — Live classes
+- **Objective:** schedule, broadcast, join, chat, attendance, recordings into the VOD pipeline.
+- **Dependencies:** R3 (pipeline, asset model); IVS + IVS Chat enabled; playback key pair.
+- **DB:** V10 live.
+- **API:** 08 §8.
+- **Infra:** IVS channels (pool per cohort), recording configuration → source bucket, EventBridge rules for IVS events → SQS, playback key in Secrets Manager.
+- **Tasks:** `LiveStreamingProvider` port + mock + IVS adapter; scheduling with overlap constraint; provisioning job T-30; ingest credentials; join tokens; chat tokens & moderation; heartbeats & attendance finalisation; recording registration + adopt path; publishing recording to lesson; notifications (reminders).
+- **Testing:** load test 500 simulated viewers (token issuance, heartbeats: ~8 writes/s); IVS dev channel end-to-end with OBS; missing-event recovery (drop Stream End → reconciler ends session).
+- **Acceptance criteria:**
+  - A learner outside the cohort can't obtain a playback or chat token (404/403).
+  - Attendance report for a 60-min session matches expected PRESENT/PARTIAL/ABSENT within ±1 min per learner.
+  - Recording becomes a READY lesson asset ≤ 1 h after session end, with no MediaConvert job in the adopt path.
+  - Host cannot be double-booked.
+- **Risks:** IVS India latency/quality (pilot with one cohort first); classroom networks blocking RTMPS (offer browser broadcast SDK).
+- **Out of scope:** two-way video, breakout rooms, polls (can ride chat later).
+
+## R5 — AI learning features
+- **Objective:** transcripts, captions, summaries, chapters, searchable transcripts, quiz/flashcard drafts with review; Q&A after evaluation.
+- **Dependencies:** R3 (`AssetReady`), STT benchmark done (Q-15), LLM provider agreement.
+- **DB:** V11 ai (+ `ai_qa_log` in 5b).
+- **API:** 08 §6 (transcript/artifacts), §7.
+- **Tasks:** `SpeechToText`, `LlmClient` ports + mocks; AI_* jobs with idempotency keys; JSON-schema validation & repair; review UI endpoints; VTT generation + master playlist update; FTS search; cost recording + budgets; **5b:** Q&A with allowed-asset retrieval, citations validation, feedback, evaluation harness.
+- **Testing:** golden-file tests for VTT/chapters; schema-validation tests; failure isolation test (STT down → video plays, AI job DEAD, alert); Q&A eval set (≥ 100 questions per pilot course) measuring grounded rate and Recall@8; tenant test: Q&A never cites an asset of another org.
+- **Acceptance criteria:**
+  - Video playback unaffected by any AI failure (test).
+  - Re-triggering AI on the same source version creates no new artifacts or spend.
+  - Learners see only APPROVED (or auto-published) artifacts.
+  - Q&A: ≥ 90% answers cite valid timestamps on the eval set; 0 cross-tenant citations; "not covered" returned without LLM call when retrieval is empty.
+- **Risks:** STT quality on Hinglish/technical terms; LLM cost from Q&A abuse → caps.
+- **Out of scope:** pgvector (unless eval demands), multimodal frame analysis by default, auto-grading.
+
+## R6 — Scale, cost and operational hardening
+- **Objective:** confidence at 5k B2B + 5k B2C with predictable cost.
+- **Tasks:** dashboards & alerts (09 §8); cost attribution job (11 §8); autoscaling policies; S3 lifecycle verification; CDN cache-hit tuning; load tests (playback session creation 200 rps, heartbeats 300 rps, live join burst 500 in 60 s, checkout 20 rps); tenant-isolation suite expanded to all endpoints; DR drill (RDS PITR restore, SQS redrive, worker crash); security review + external pentest; virtual-thread vs platform-thread experiment (09 §7); evaluate RLS (ADR-002) and Kafka trigger (ADR-008).
+- **Acceptance criteria:** SLOs met under load (API p95 < 300 ms for non-provider calls; playback session p95 < 200 ms); restore drill RPO ≤ 5 min / RTO ≤ 1 h; zero high/critical pentest findings open; monthly cost within ±20% of the 11 model for observed usage.
+- **Out of scope:** multi-region, microservice extraction.
+
+## Dependency graph
+
+```mermaid
+flowchart LR
+  R0 --> R1 --> R2 --> R3 --> R4
+  R3 --> R5
+  R4 --> R5b[R5b Q&A on live recordings]
+  R2 --> R6
+  R3 --> R6
+  R4 --> R6
+  R5 --> R6
+```
+
+## Cross-cutting definition of done (every phase)
+Flyway migration + `ddl-auto: validate` passes; `ModularityTests` green; unit + Testcontainers ITs; tenant-isolation tests for new endpoints; metrics + alerts for new flows; API docs updated (08); ADR added for any new decision; no secrets in repo.
