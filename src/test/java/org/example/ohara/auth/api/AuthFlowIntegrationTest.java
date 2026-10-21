@@ -2,6 +2,8 @@ package org.example.ohara.auth.api;
 
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
+import org.example.ohara.notification.application.EmailMessage;
+import org.example.ohara.notification.infrastructure.InMemoryEmailSender;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -9,8 +11,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -19,7 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * End-to-end auth flow against the real Postgres (ohara_test) with Flyway migrations applied.
+ * End-to-end auth flows against the real Postgres (ohara_test) with Flyway migrations applied.
+ * Emails go to the in-memory mock sender, which is how tests follow verification and reset links.
  * Each test uses a fresh email so runs don't collide.
  */
 @SpringBootTest
@@ -27,26 +33,51 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthFlowIntegrationTest {
 
     private static final String COOKIE = "refresh_token";
+    private static final String PASSWORD = "secret1234";
+    private static final Pattern TOKEN = Pattern.compile("token=([A-Za-z0-9_-]+)");
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private InMemoryEmailSender emails;
 
     private static String newEmail() {
         return "user-" + UUID.randomUUID() + "@example.com";
     }
 
-    private static String registerJson(String email) {
-        return """
-            {"firstName":"Ada","lastName":"Lovelace","email":"%s","password":"secret1234"}
-            """.formatted(email);
+    private ResultActions postJson(String path, String json) throws Exception {
+        return mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
-    private MvcResult register(String email) throws Exception {
-        return mockMvc.perform(post("/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(registerJson(email)))
-            .andExpect(status().isOk())
-            .andReturn();
+    private ResultActions register(String email) throws Exception {
+        return postJson("/api/auth/register", """
+            {"firstName":"Ada","lastName":"Lovelace","email":"%s","password":"%s"}
+            """.formatted(email, PASSWORD));
+    }
+
+    private ResultActions login(String email, String password) throws Exception {
+        return postJson("/api/auth/login", """
+            {"email":"%s","password":"%s"}
+            """.formatted(email, password));
+    }
+
+    private String tokenFromLastEmail(String email, String subjectFragment) {
+        EmailMessage message = emails.lastSentTo(email).orElseThrow();
+        assertThat(message.subject()).contains(subjectFragment);
+        Matcher matcher = TOKEN.matcher(message.body());
+        assertThat(matcher.find()).isTrue();
+        return matcher.group(1);
+    }
+
+    private ResultActions verify(String token) throws Exception {
+        return postJson("/api/auth/verify-email", "{\"token\":\"%s\"}".formatted(token));
+    }
+
+    /** Registers and verifies, returning the session issued by verification. */
+    private MvcResult registeredAndVerified(String email) throws Exception {
+        register(email).andExpect(status().isAccepted());
+        return verify(tokenFromLastEmail(email, "Verify")).andExpect(status().isOk()).andReturn();
     }
 
     private static String accessToken(MvcResult result) throws Exception {
@@ -58,35 +89,113 @@ class AuthFlowIntegrationTest {
     }
 
     private MvcResult refresh(String refreshToken) throws Exception {
-        return mockMvc.perform(post("/api/auth/refresh").cookie(new Cookie(COOKIE, refreshToken)))
-            .andReturn();
+        return mockMvc.perform(post("/api/auth/refresh").cookie(new Cookie(COOKIE, refreshToken))).andReturn();
     }
+
+    private ResultActions me(String accessToken) throws Exception {
+        return mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken));
+    }
+
+    // --- registration & verification ---------------------------------------------------------------
+
+    @Test
+    void registrationReturnsNoSessionAndSendsAVerificationEmail() throws Exception {
+        String email = newEmail();
+
+        MvcResult result = register(email)
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.status").value("VERIFICATION_REQUIRED"))
+            .andExpect(jsonPath("$.accessToken").doesNotExist())
+            .andReturn();
+
+        assertThat(result.getResponse().getCookie(COOKIE)).isNull();
+        assertThat(tokenFromLastEmail(email, "Verify")).isNotBlank();
+    }
+
+    @Test
+    void registeringAnExistingEmailLooksTheSameButSendsANotice() throws Exception {
+        String email = newEmail();
+        registeredAndVerified(email);
+
+        register(email.toUpperCase())
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.status").value("VERIFICATION_REQUIRED"));
+
+        assertThat(emails.lastSentTo(email).orElseThrow().subject()).contains("already have");
+    }
+
+    @Test
+    void verificationActivatesTheAccountAndLinksAreSingleUse() throws Exception {
+        String email = newEmail();
+        register(email);
+        String token = tokenFromLastEmail(email, "Verify");
+
+        MvcResult verified = verify(token).andExpect(status().isOk()).andReturn();
+        me(accessToken(verified))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ACTIVE"))
+            .andExpect(jsonPath("$.emailVerified").value(true));
+
+        verify(token).andExpect(status().isGone()).andExpect(jsonPath("$.code").value("verification_token_expired"));
+        verify("not-a-real-token").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("verification_token_invalid"));
+    }
+
+    @Test
+    void unverifiedAccountsCanSignInWithALimitedSession() throws Exception {
+        String email = newEmail();
+        register(email);
+
+        String accessToken = accessToken(login(email, PASSWORD).andExpect(status().isOk()).andReturn());
+
+        me(accessToken)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("PENDING_VERIFICATION"))
+            .andExpect(jsonPath("$.emailVerified").value(false));
+        // Anything beyond /me needs a verified email.
+        mockMvc.perform(get("/api/anything-else").header("Authorization", "Bearer " + accessToken))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void resendWithinTheCooldownKeepsTheExistingLink() throws Exception {
+        String email = newEmail();
+        register(email);
+        String first = tokenFromLastEmail(email, "Verify");
+
+        postJson("/api/auth/verify-email/resend", "{\"email\":\"%s\"}".formatted(email)).andExpect(status().isAccepted());
+
+        // Within the cooldown no new email is sent, so the first link still works.
+        assertThat(tokenFromLastEmail(email, "Verify")).isEqualTo(first);
+        verify(first).andExpect(status().isOk());
+    }
+
+    // --- sessions ----------------------------------------------------------------------------------
 
     @Test
     void refreshCookieIsHttpOnlyAndNotInBody() throws Exception {
-        MvcResult registered = register(newEmail());
+        MvcResult session = registeredAndVerified(newEmail());
 
-        Cookie cookie = registered.getResponse().getCookie(COOKIE);
+        Cookie cookie = session.getResponse().getCookie(COOKIE);
         assertThat(cookie).isNotNull();
         assertThat(cookie.isHttpOnly()).isTrue();
         assertThat(cookie.getPath()).isEqualTo("/api/auth");
-        assertThat(registered.getResponse().getContentAsString()).doesNotContain("refreshToken");
+        assertThat(session.getResponse().getContentAsString()).doesNotContain("refreshToken");
     }
 
     @Test
-    void registerThenAccessProtectedEndpointAndRotateRefreshToken() throws Exception {
+    void accessProtectedEndpointAndRotateRefreshToken() throws Exception {
         String email = newEmail();
-        MvcResult registered = register(email);
-        String refreshToken = refreshCookie(registered);
+        MvcResult session = registeredAndVerified(email);
+        String refreshToken = refreshCookie(session);
 
-        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken(registered)))
+        me(accessToken(session))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.email").value(email))
             .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"));
 
         // A refresh token must not authenticate API calls.
-        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + refreshToken))
-            .andExpect(status().is4xxClientError());
+        me(refreshToken).andExpect(status().isUnauthorized());
 
         MvcResult rotated = refresh(refreshToken);
         assertThat(rotated.getResponse().getStatus()).isEqualTo(200);
@@ -94,9 +203,20 @@ class AuthFlowIntegrationTest {
 
         // Reusing the old refresh token is rejected...
         assertThat(refresh(refreshToken).getResponse().getStatus()).isEqualTo(401);
-
         // ...and reuse revokes every active session, including the newly issued one.
         assertThat(refresh(newRefreshToken).getResponse().getStatus()).isEqualTo(401);
+    }
+
+    @Test
+    void refreshTokenReuseAlsoInvalidatesOutstandingAccessTokens() throws Exception {
+        MvcResult session = registeredAndVerified(newEmail());
+        String accessToken = accessToken(session);
+        String refreshToken = refreshCookie(session);
+
+        refresh(refreshToken);
+        refresh(refreshToken); // reuse → all sessions revoked, auth_version bumped
+
+        me(accessToken).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -108,7 +228,7 @@ class AuthFlowIntegrationTest {
 
     @Test
     void logoutRevokesRefreshTokenAndClearsCookie() throws Exception {
-        String refreshToken = refreshCookie(register(newEmail()));
+        String refreshToken = refreshCookie(registeredAndVerified(newEmail()));
 
         MvcResult loggedOut = mockMvc.perform(post("/api/auth/logout").cookie(new Cookie(COOKIE, refreshToken)))
             .andExpect(status().isNoContent())
@@ -121,47 +241,37 @@ class AuthFlowIntegrationTest {
     }
 
     @Test
-    void protectedEndpointRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/users/me"))
-            .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void refreshTokenReuseAlsoInvalidatesOutstandingAccessTokens() throws Exception {
-        MvcResult registered = register(newEmail());
-        String accessToken = accessToken(registered);
-        String refreshToken = refreshCookie(registered);
-
-        refresh(refreshToken);
-        refresh(refreshToken); // reuse → all sessions revoked, auth_version bumped
-
-        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + accessToken))
-            .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    void registeringAnExistingEmailInAnyCaseIsAConflict() throws Exception {
+    void logoutAllEndsEverySession() throws Exception {
         String email = newEmail();
-        register(email);
+        MvcResult first = registeredAndVerified(email);
+        MvcResult second = login(email, PASSWORD).andExpect(status().isOk()).andReturn();
 
-        mockMvc.perform(post("/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(registerJson(email.toUpperCase())))
-            .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.code").value("email_already_registered"))
-            .andExpect(jsonPath("$.status").value(409));
+        mockMvc.perform(post("/api/auth/logout-all").header("Authorization", "Bearer " + accessToken(second)))
+            .andExpect(status().isNoContent());
+
+        me(accessToken(first)).andExpect(status().isUnauthorized());
+        assertThat(refresh(refreshCookie(first)).getResponse().getStatus()).isEqualTo(401);
+        assertThat(refresh(refreshCookie(second)).getResponse().getStatus()).isEqualTo(401);
     }
+
+    @Test
+    void logoutAllRequiresAuthentication() throws Exception {
+        mockMvc.perform(post("/api/auth/logout-all")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void protectedEndpointRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/users/me")).andExpect(status().isUnauthorized());
+    }
+
+    // --- login ---------------------------------------------------------------------------------------
 
     @Test
     void loginIsCaseInsensitiveOnEmail() throws Exception {
         String email = newEmail();
-        register(email);
+        registeredAndVerified(email);
 
-        mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"email":"%s","password":"secret1234"}
-                    """.formatted(email.toUpperCase())))
+        login(email.toUpperCase(), PASSWORD)
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.email").value(email));
     }
@@ -169,24 +279,84 @@ class AuthFlowIntegrationTest {
     @Test
     void wrongPasswordIsUnauthorizedProblem() throws Exception {
         String email = newEmail();
-        register(email);
+        registeredAndVerified(email);
 
-        mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"email":"%s","password":"wrong-password"}
-                    """.formatted(email)))
+        login(email, "wrong-password")
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.code").value("invalid_credentials"));
     }
 
     @Test
+    void fiveFailedLoginsLockTheAccountEvenForTheRightPassword() throws Exception {
+        String email = newEmail();
+        registeredAndVerified(email);
+
+        for (int i = 0; i < 5; i++) {
+            login(email, "wrong-password").andExpect(status().isUnauthorized());
+        }
+
+        login(email, PASSWORD)
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("invalid_credentials"));
+    }
+
+    // --- password reset ------------------------------------------------------------------------------
+
+    @Test
+    void passwordResetReplacesThePasswordAndEndsExistingSessions() throws Exception {
+        String email = newEmail();
+        MvcResult session = registeredAndVerified(email);
+
+        postJson("/api/auth/forgot-password", "{\"email\":\"%s\"}".formatted(email)).andExpect(status().isAccepted());
+        String resetToken = tokenFromLastEmail(email, "Reset");
+
+        postJson("/api/auth/reset-password", """
+            {"token":"%s","newPassword":"brand-new-pass"}
+            """.formatted(resetToken)).andExpect(status().isNoContent());
+
+        assertThat(emails.lastSentTo(email).orElseThrow().subject()).contains("password was changed");
+        me(accessToken(session)).andExpect(status().isUnauthorized());
+        assertThat(refresh(refreshCookie(session)).getResponse().getStatus()).isEqualTo(401);
+        login(email, PASSWORD).andExpect(status().isUnauthorized());
+        login(email, "brand-new-pass").andExpect(status().isOk());
+
+        postJson("/api/auth/reset-password", """
+            {"token":"%s","newPassword":"another-pass-1"}
+            """.formatted(resetToken))
+            .andExpect(status().isGone())
+            .andExpect(jsonPath("$.code").value("reset_token_expired"));
+    }
+
+    @Test
+    void resettingThePasswordAlsoVerifiesAPendingAccount() throws Exception {
+        String email = newEmail();
+        register(email);
+
+        postJson("/api/auth/forgot-password", "{\"email\":\"%s\"}".formatted(email)).andExpect(status().isAccepted());
+        postJson("/api/auth/reset-password", """
+            {"token":"%s","newPassword":"brand-new-pass"}
+            """.formatted(tokenFromLastEmail(email, "Reset"))).andExpect(status().isNoContent());
+
+        String accessToken = accessToken(login(email, "brand-new-pass").andExpect(status().isOk()).andReturn());
+        me(accessToken).andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void forgotPasswordForAnUnknownEmailLooksTheSameAndSendsNothing() throws Exception {
+        String email = newEmail();
+
+        postJson("/api/auth/forgot-password", "{\"email\":\"%s\"}".formatted(email)).andExpect(status().isAccepted());
+
+        assertThat(emails.sentTo(email)).isEmpty();
+    }
+
+    // --- errors --------------------------------------------------------------------------------------
+
+    @Test
     void validationErrorsAreProblemDetailsWithFieldErrors() throws Exception {
-        mockMvc.perform(post("/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"firstName":"","lastName":"L","email":"not-an-email","password":"short"}
-                    """))
+        postJson("/api/auth/register", """
+            {"firstName":"","lastName":"L","email":"not-an-email","password":"short"}
+            """)
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("validation_failed"))
             .andExpect(jsonPath("$.errors[?(@.field == 'email')]").exists())

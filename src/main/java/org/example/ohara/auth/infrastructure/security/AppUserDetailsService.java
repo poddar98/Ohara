@@ -14,9 +14,11 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Locale;
+import java.util.Optional;
 
-/** Loads a user for password login. Username is the email; only ACTIVE accounts can authenticate. */
+/** Loads a user for password login. Username is the email; locked or inactive accounts can't authenticate. */
 @Service
 public class AppUserDetailsService implements UserDetailsService {
 
@@ -35,10 +37,11 @@ public class AppUserDetailsService implements UserDetailsService {
         User user = userService.findByEmail(email)
             .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        String password = passwordCredentialRepository
-            .findByAuthIdentityProviderAndAuthIdentityIdentifier(AuthIdentity.LOCAL_PROVIDER, email)
-            .map(PasswordCredential::getEncodedPassword)
-            .orElse("");
+        Optional<PasswordCredential> credential = passwordCredentialRepository
+            .findByAuthIdentityProviderAndAuthIdentityIdentifier(AuthIdentity.LOCAL_PROVIDER, email);
+        String password = credential.map(PasswordCredential::getEncodedPassword).orElse("");
+        boolean locked = user.getStatus() == UserStatus.SUSPENDED
+            || credential.map(c -> c.isLocked(Instant.now())).orElse(false);
 
         return org.springframework.security.core.userdetails.User.withUsername(user.getEmail())
             .password(password)
@@ -47,8 +50,8 @@ public class AppUserDetailsService implements UserDetailsService {
                 .map(name -> name.startsWith("ROLE_") ? name : "ROLE_" + name)
                 .map(SimpleGrantedAuthority::new)
                 .toList())
-            .accountLocked(user.getStatus() == UserStatus.SUSPENDED)
-            .disabled(user.getStatus() != UserStatus.ACTIVE)
+            .accountLocked(locked)
+            .disabled(!user.canSignIn())
             .build();
     }
 }

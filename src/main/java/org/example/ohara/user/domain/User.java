@@ -36,7 +36,7 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private UserStatus status = UserStatus.ACTIVE;
+    private UserStatus status = UserStatus.PENDING_VERIFICATION;
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -49,6 +49,9 @@ public class User {
 
     @Column(nullable = false)
     private int authVersion;
+
+    @Column
+    private Instant emailVerifiedAt;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private UserProfile profile;
@@ -134,6 +137,30 @@ public class User {
     public void bumpAuthVersion() {
         this.authVersion++;
         this.updatedAt = Instant.now();
+    }
+
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
+    }
+
+    /** Proof of email ownership; activates an account that was waiting for it. */
+    public void markEmailVerified(Instant now) {
+        if (emailVerifiedAt == null) {
+            emailVerifiedAt = now;
+        }
+        if (status == UserStatus.PENDING_VERIFICATION) {
+            status = UserStatus.ACTIVE;
+        }
+        updatedAt = now;
+    }
+
+    /** Accounts that may hold a session: verified and active, or still waiting for email verification. */
+    public boolean canSignIn() {
+        return status == UserStatus.ACTIVE || status == UserStatus.PENDING_VERIFICATION;
     }
 
     public boolean isActive() {

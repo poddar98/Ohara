@@ -2,6 +2,7 @@ package org.example.ohara.auth.infrastructure.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -32,8 +33,11 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/auth/logout-all").authenticated()
                 .requestMatchers("/api/health", "/api/auth/**", "/actuator/health", "/actuator/info").permitAll()
-                .anyRequest().authenticated())
+                // Unverified sessions can see who they are and nothing else.
+                .requestMatchers(HttpMethod.GET, "/api/users/me").authenticated()
+                .anyRequest().hasAuthority(JwtAuthenticationFilter.FULL_SCOPE))
             .authenticationProvider(authenticationProvider)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

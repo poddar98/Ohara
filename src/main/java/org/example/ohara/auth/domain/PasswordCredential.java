@@ -10,6 +10,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -30,6 +31,12 @@ public class PasswordCredential {
 
     @Column(nullable = false)
     private Instant passwordChangedAt;
+
+    @Column(nullable = false)
+    private int failedAttempts;
+
+    @Column
+    private Instant lockedUntil;
 
     public PasswordCredential() {
     }
@@ -58,6 +65,38 @@ public class PasswordCredential {
 
     public void setEncodedPassword(String encodedPassword) {
         this.encodedPassword = encodedPassword;
+    }
+
+    public boolean isLocked(Instant now) {
+        return lockedUntil != null && lockedUntil.isAfter(now);
+    }
+
+    /** Every 5th consecutive failure locks the credential: 15, 30, then 60 minutes. */
+    public void recordFailedLogin(Instant now) {
+        failedAttempts++;
+        if (failedAttempts % 5 == 0) {
+            long minutes = Math.min(60, 15L << Math.min(2, failedAttempts / 5 - 1));
+            lockedUntil = now.plus(Duration.ofMinutes(minutes));
+        }
+    }
+
+    public void recordSuccessfulLogin() {
+        failedAttempts = 0;
+        lockedUntil = null;
+    }
+
+    public void changePassword(String encodedPassword, Instant now) {
+        this.encodedPassword = encodedPassword;
+        this.passwordChangedAt = now;
+        recordSuccessfulLogin();
+    }
+
+    public int getFailedAttempts() {
+        return failedAttempts;
+    }
+
+    public Instant getLockedUntil() {
+        return lockedUntil;
     }
 
     public Instant getPasswordChangedAt() {

@@ -14,13 +14,18 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Authenticates bearer access tokens. Besides the signature, the token's {@code ver} must equal the user's current
- * auth_version and the account must be ACTIVE, so suspensions and session revocations apply immediately.
+ * auth_version and the account must be able to sign in, so suspensions and session revocations apply immediately.
+ * Only full-scope tokens of ACTIVE users get {@value #FULL_SCOPE}; unverified sessions are limited (see SecurityConfig).
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    public static final String FULL_SCOPE = "SCOPE_full";
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserService userService;
@@ -36,22 +41,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            jwtTokenProvider.parseAccessToken(header.substring(7))
-                .filter(this::isCurrent)
-                .ifPresent(this::authenticate);
+            jwtTokenProvider.parseAccessToken(header.substring(7)).ifPresent(claims ->
+                userService.findAuthState(claims.actor().userId())
+                    .filter(state -> state.canSignIn() && state.authVersion() == claims.authVersion())
+                    .ifPresent(state -> authenticate(claims, claims.fullScope() && state.active())));
         }
 
         filterChain.doFilter(request, response);
     }
 
-    private boolean isCurrent(AccessClaims claims) {
-        return userService.findAuthState(claims.actor().userId())
-            .filter(state -> state.active() && state.authVersion() == claims.authVersion())
-            .isPresent();
-    }
-
-    private void authenticate(AccessClaims claims) {
-        var authorities = claims.actor().platformRoles().stream().map(SimpleGrantedAuthority::new).toList();
+    private void authenticate(AccessClaims claims, boolean fullScope) {
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        claims.actor().platformRoles().forEach(role -> authorities.add(new SimpleGrantedAuthority(role)));
+        if (fullScope) {
+            authorities.add(new SimpleGrantedAuthority(FULL_SCOPE));
+        }
         var authentication = new UsernamePasswordAuthenticationToken(claims.actor(), null, authorities);
         SecurityContextHolder.getContext().setAuthentication(authentication);
     }

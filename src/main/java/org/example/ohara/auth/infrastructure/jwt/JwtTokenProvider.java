@@ -27,6 +27,8 @@ public class JwtTokenProvider {
 
     private static final String ACCESS = "ACCESS";
     private static final String REFRESH = "REFRESH";
+    static final String SCOPE_FULL = "full";
+    static final String SCOPE_UNVERIFIED = "unverified";
 
     @Value("${jwt.secret}")
     private String secret;
@@ -44,8 +46,8 @@ public class JwtTokenProvider {
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Claims of a valid access token. */
-    public record AccessClaims(CurrentActor actor, int authVersion) {
+    /** Claims of a valid access token. {@code fullScope} is false until the email is verified. */
+    public record AccessClaims(CurrentActor actor, int authVersion, boolean fullScope) {
     }
 
     public String generateAccessToken(User user) {
@@ -67,6 +69,7 @@ public class JwtTokenProvider {
             .claim("tokenType", tokenType)
             .claim("roles", roles)
             .claim("ver", user.getAuthVersion())
+            .claim("scope", user.isActive() ? SCOPE_FULL : SCOPE_UNVERIFIED)
             .issuedAt(now)
             .expiration(new Date(now.getTime() + validityMs))
             .signWith(signingKey, Jwts.SIG.HS256)
@@ -82,7 +85,7 @@ public class JwtTokenProvider {
                 .toList();
             CurrentActor actor = new CurrentActor(
                 UUID.fromString(claims.getSubject()), claims.get("email", String.class), roles);
-            return new AccessClaims(actor, claims.get("ver", Integer.class));
+            return new AccessClaims(actor, claims.get("ver", Integer.class), SCOPE_FULL.equals(claims.get("scope", String.class)));
         });
     }
 

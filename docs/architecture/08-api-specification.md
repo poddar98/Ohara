@@ -48,7 +48,7 @@ Endpoints marked **(A)** write `audit_event`.
 
 | Method & path | Purpose | Authz | Request | Response | Errors | Notes |
 |---|---|---|---|---|---|---|
-| `POST /api/auth/register` **[exists – changed]** | B2C sign-up | public | `RegisterRequest{firstName, lastName, email, password(8–128), consents[{type, version}]}` | 202 `{status:"VERIFICATION_REQUIRED", accessToken(scope=unverified), tokenType, email}` + refresh cookie | 400 validation; 429 | Enumeration-safe: existing email → same 202 + notice email (04 §3.1) |
+| `POST /api/auth/register` **[exists – changed]** | B2C sign-up | public | `RegisterRequest{firstName, lastName, email, password(8–72), consents[{type, version}] (consents: later slice)}` | 202 `{status:"VERIFICATION_REQUIRED", email}` — no tokens, no cookie (identical for existing emails) | 400 validation; 429 | Enumeration-safe: existing email → same 202 + notice email (04 §3.1) |
 | `POST /api/auth/verify-email` | Verify email | public | `{token}` | 200 `AuthResponse` (full scope) + cookie | 400 invalid; 410 expired/consumed | Idempotent for same token within 5 min |
 | `POST /api/auth/verify-email/resend` | Resend | public or unverified | `{email?}` | 202 | 429 | Always 202 |
 | `POST /api/auth/login` **[exists – changed]** | Login | public | `LoginRequest{email, password}` | 200 `AuthResponse{accessToken, tokenType, email, userId, scope}` + cookie | 401 generic; 403 `account_suspended`/`account_deactivated`(+`reactivationToken`); 429 lockout | (A) on failure bursts |

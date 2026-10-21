@@ -9,6 +9,7 @@ public record UserResponse(
     String firstName,
     String lastName,
     String status,
+    boolean emailVerified,
     List<String> roles
 ) {
 }

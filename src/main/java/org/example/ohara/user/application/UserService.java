@@ -31,13 +31,19 @@ public class UserService {
             user.getFirstName(),
             user.getLastName(),
             user.getStatus().name(),
+            user.isEmailVerified(),
             user.getRoles().stream().map(UserRole::getName).toList()
         );
     }
 
     @Transactional(readOnly = true)
     public Optional<UserAuthState> findAuthState(UUID userId) {
-        return userRepository.findById(userId).map(user -> new UserAuthState(user.isActive(), user.getAuthVersion()));
+        return userRepository.findById(userId).map(user -> new UserAuthState(user.isActive(), user.canSignIn(), user.getAuthVersion()));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<User> findById(UUID userId) {
+        return userRepository.findById(userId);
     }
 
     /** Used by other modules (auth) that need to look up or create users without touching the repository. */

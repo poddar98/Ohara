@@ -62,10 +62,10 @@ Org membership status is independent: an ACTIVE user can be `REMOVED` from Colle
    - **PENDING_VERIFICATION:** re-send verification (rate limited); 202.
 4. Else create `users(PENDING_VERIFICATION)`, `user_profile`, `user_role(ROLE_USER)`, `auth_identity(local)`, `password_credential` (BCrypt; cost factor 12, see 10 §3), `user_consent` rows, `one_time_token(EMAIL_VERIFICATION, 24 h)`; enqueue `EMAIL_SEND` job via outbox. Same transaction.
 5. Attach pending invitations: if `invitation` rows exist for this email, they are **not** auto-accepted (accepting requires the invite token or a verified email; see 3.5) — but the UI lists them after verification.
-6. Response 202 `{status: "VERIFICATION_REQUIRED"}`. **Decision:** issue tokens at registration only with `scope=unverified` so the UI can show "check your email"; full scope after verification (keeps current UX of being signed in immediately).
+6. Response 202 `{status: "VERIFICATION_REQUIRED", email}` with **no tokens and no cookie** — returning a session only for new emails would reveal which emails exist. The verification link signs the user in (it returns a full-scope session). A pending user who logs in with their password gets a limited `scope=unverified` session (`GET /api/users/me` only). *Implemented 2026-10-21 (R1 slice 2); consents and invitation attachment come later.*
 
 ### 3.2 Email verification
-`POST /api/auth/verify-email {token}` → hash, look up unconsumed `EMAIL_VERIFICATION` token, check expiry → set `consumed_at`, `auth_identity.verified_at`, `users.email_verified_at`, `users.status=ACTIVE` → emit `UserVerified` event → return fresh token pair (full scope). Expired → 410 with "resend" affordance. `POST /api/auth/verify-email/resend` (authenticated or by email; always 202; 3/hour/email).
+`POST /api/auth/verify-email {token}` → hash, look up unconsumed `EMAIL_VERIFICATION` token, check expiry → set `consumed_at`, `auth_identity.verified_at`, `users.email_verified_at`, `users.status=ACTIVE` → return fresh token pair (full scope). Unknown token → 400 `verification_token_invalid`; expired/used → 410 `verification_token_expired`. `POST /api/auth/verify-email/resend {email}` → always 202; no new email within a 60 s cooldown (per-email/IP rate limits come with the rate-limit slice). Issuing a token invalidates the user's earlier unused tokens of the same purpose.
 
 ### 3.3 Login / logout
 Existing implementation retained with changes:

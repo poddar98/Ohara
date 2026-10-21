@@ -350,7 +350,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | Version | Content | Risk |
 |---|---|---|
 | V3__identity_hardening ✅ (2026-10-21) | `TIMESTAMP`→`TIMESTAMPTZ`, cascades → RESTRICT, `users.status` CHECK (+ `INACTIVE→DEACTIVATED`), `auth_version`, `lower(email)` unique index, partial index `refresh_token(user_id) WHERE revoked_at IS NULL` | Applied to dev + test DBs; entities now use `Instant`. |
-| V3_1__account_lifecycle | `email_verified_at`, `one_time_token`, `user_consent`, `password_credential` lockout columns; `refresh_token.family_id` only if per-device session revocation is built | Next R1 slice (verification, reset, lockout). |
+| V3_1__account_lifecycle ✅ (2026-10-21) | `email_verified_at` (existing ACTIVE users backfilled), status default `PENDING_VERIFICATION`, `one_time_token` (EMAIL_VERIFICATION, PASSWORD_RESET), `password_credential.failed_attempts/locked_until` | Applied to dev + test DBs. `user_consent` and `refresh_token.family_id` deferred until consents / per-device sessions are built. |
 | V4__organization | organization, membership, cohort, cohort_membership, invitation, bulk_import_* | Low |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
