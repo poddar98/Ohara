@@ -95,49 +95,47 @@ sequenceDiagram
 
 Per-institution pricing/duration differences live on the offering (window) and the license (contract), never in course content.
 
-## 5. B2C: purchase and entitlement (diagram 4)
+## 5. B2C: offline payment, staff-granted access (diagram 4)
+
+Payments and refunds for individual learners are handled by the **contract team by bank transfer**, outside Ohara (ADR-012). Ohara's job is to turn a confirmed payment into an access grant, and a refund into a revocation, with a traceable reference.
 
 ```mermaid
 sequenceDiagram
   autonumber
   actor U as Learner
+  actor CT as Contract team (ROLE_ENROLLMENT_MANAGER)
   participant API as Ohara API
   participant DB as PostgreSQL
-  participant PG as Payment gateway
-  participant ENR as enrollment module
-  U->>API: POST /api/checkout {offeringId} + Idempotency-Key
-  API->>API: user ACTIVE & email verified; offering B2C OPEN; no active FULL grant
-  API->>DB: purchase_order(CREATED) + order_item(PENDING)<br/>UNIQUE(user, offering) WHERE PENDING blocks concurrent duplicates
-  API->>PG: create gateway order (amount, receipt=order.id)
-  API->>DB: gateway_order_id, status PAYMENT_PENDING
-  API-->>U: {orderId, gateway, gatewayOrderId, key} for checkout widget
-  U->>PG: pays in gateway UI
-  PG-->>U: client callback (NOT trusted for access)
-  U->>API: POST /api/checkout/{orderId}/confirm {gatewayPaymentId, signature}
-  API->>API: verify signature server-side; fetch payment status from gateway
-  PG->>API: webhook payment.captured (signed)
-  API->>DB: payment_webhook_event (UNIQUE gateway_event_id) — 200 ack fast
-  Note over API,DB: confirm-call and webhook converge on the same idempotent handler
-  API->>DB: payment_transaction CAPTURED (UNIQUE gateway_payment_id) ;<br/>order PAID ; order_item FULFILLED — one transaction
-  API->>ENR: event PaymentCaptured(orderItemId) via outbox
-  ENR->>DB: enrollment ON CONFLICT DO NOTHING ;<br/>access_grant(PURCHASE, source_ref=order_item.id) ON CONFLICT DO NOTHING
-  U->>API: GET /api/checkout/{orderId} → PAID + enrollmentId
+  U->>API: browse GET /api/catalog/courses (list price shown, "Contact us to enroll")
+  U-->>CT: agrees terms, pays by bank transfer (outside Ohara)
+  CT->>CT: confirms funds received (bank statement / UTR)
+  CT->>API: POST /api/admin/offerings/{offeringId}/grants + Idempotency-Key<br/>{email, firstName, lastName, externalReference (UTR/contract no), validUntil?}
+  API->>API: authorize ROLE_ENROLLMENT_MANAGER; offering is B2C OPEN
+  alt account exists for email
+    API->>DB: enrollment ON CONFLICT (user, offering) DO NOTHING
+  else no account
+    API->>DB: users(ACTIVE, no password) + profile + local identity<br/>one_time_token PASSWORD_RESET (72h) → "set your password" email
+    API->>DB: enrollment
+  end
+  API->>DB: access_grant(source=CONTRACT, external_reference, granted_by,<br/>valid_from=now, valid_until=now+access_duration_days or explicit)
+  API->>DB: audit_event ACCESS_GRANTED (reference, actor)
+  API-->>CT: 201 {enrollmentId, grantId, userCreated}
+  Note over U,API: learner logs in → course appears in GET /api/me/courses
+  Note over CT,DB: Bulk: bulk_import_job mode=GRANT_ACCESS (CSV of email, name, reference) — same rules per row
 ```
 
 | Situation | Handling |
 |---|---|
-| Duplicate checkout click | Same `Idempotency-Key` → same order returned (`idempotency_key` table / `UNIQUE(user_id, idempotency_key)`). |
-| Two tabs, different keys | Second insert of `order_item` PENDING for same (user, offering) hits partial unique → 409 returning the existing pending order. |
-| Payment failed | Webhook `payment.failed` → `payment_transaction FAILED`; order stays `PAYMENT_PENDING` until gateway order expiry (user can retry within it), then `FAILED`; `order_item CANCELLED`. |
-| Client says success, no webhook yet | `/confirm` verifies signature **and** queries gateway; access granted only if gateway says captured. |
-| Webhook retries / out of order | `UNIQUE(gateway, gateway_event_id)` dedups; state transitions only move forward (`PAID` never reverts to `PAYMENT_PENDING`). |
-| Webhook never arrives | Reconciliation job every 10 min queries gateway for orders `PAYMENT_PENDING` older than 5 min. |
-| Paid twice (rare double capture) | Second capture recorded; grant creation is a no-op (unique `source_ref`); auto-refund job for the duplicate payment + alert. |
-| Refund | Admin/automated `POST /api/admin/orders/{id}/refunds` → gateway refund → webhook `refund.processed` → `payment_transaction REFUND`, order REFUNDED → grant `revoked_at`, reason `REFUNDED`; enrollment `CANCELLED`; progress kept. |
-| Access expiry | `access_duration_days` on the offering → `valid_until = paid_at + duration`. |
-| Price change | Order stores `unit_price_minor` at purchase; offering price changes don't affect existing orders. |
+| Contract team double-submits | `Idempotency-Key` replays the first response; second distinct request for an enrollment that already has an active CONTRACT grant → 409 `already_has_access` (use *extend* instead). |
+| Same reference used twice by mistake | Warning (not block): API returns `referenceAlreadyUsed: [grantIds]` so the team can check; finance owns reconciliation. |
+| Learner email typo | Grant is to the wrong person → revoke (`ADMIN`), re-grant to correct email; the stray pre-created account stays unverified-in-practice (no password set) and is purged after 30 days if never activated. |
+| Extension / renewal paid offline | `POST /api/admin/grants/{grantId}/extend {validUntil, externalReference}` → new grant row (history kept), old one left to expire. |
+| Refund (offline) | `POST /api/admin/grants/{grantId}/revoke {reason: REFUNDED_OFFLINE, externalReference?}` → `revoked_at`; enrollment `CANCELLED` if no other active grant; progress kept. |
+| Access expiry | `valid_until` from the offering's `access_duration_days` or the explicit date; nightly job marks enrollments `EXPIRED`. |
+| Price change | `list_price_minor` is display only; nothing to reconcile in Ohara. |
+| Reconciliation | `GET /api/admin/access-grants?source=CONTRACT&from&to&format=csv` lists every grant/revocation with reference and staff member, for finance to match against bank records. |
 
-Subscriptions: if ₹1,000/month turns out to be a subscription (Q-01), a `subscription` record issues one `access_grant(SUBSCRIPTION)` per catalog enrollment whose `valid_until` is extended on each successful renewal webhook; cancellation sets `valid_until = current_period_end`. The rest of the model is unchanged — that's the point of separating grants from payments.
+B2B colleges also pay offline under contract; in Ohara that is represented only by the org's course licence and offering windows (§4) — there are no per-learner payment records.
 
 ## 6. Central authorization: `ContentAccessService`
 
@@ -190,6 +188,6 @@ Returns `validUntil = min(grant.valid_until, offering.ends_at)` so callers can c
 
 1. Membership ≠ access. Only grants open content.
 2. Enrollment ≠ permanent access. Grants have windows; revocation is explicit.
-3. Payment ≠ access until the server verifies capture.
+3. Payment happens offline; access exists only once an authorised staff member records a grant with its reference.
 4. A learner never sees another version's curriculum than the one pinned (except staff).
 5. All checks happen server-side in `ContentAccessService`; the UI's lock icons are a convenience copy of the same decisions.

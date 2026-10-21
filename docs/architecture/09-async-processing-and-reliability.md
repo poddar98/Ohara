@@ -6,7 +6,7 @@ Status: **Proposed** · 2026-10-21 · Nothing asynchronous exists today (01 §5)
 
 | Mechanism | Used for | Why this and not something else |
 |---|---|---|
-| **Spring Modulith event publication registry** (JDBC, `spring-modulith-starter-jdbc`) | In-process domain events between modules (`PaymentCaptured`, `CohortMembershipStarted`, `AssetReady`, `OfferingOpened`) | Transactional outbox for free: the event is persisted in the same transaction as the state change and re-delivered on restart if a listener failed. Already on the Modulith stack. |
+| **Spring Modulith event publication registry** (JDBC, `spring-modulith-starter-jdbc`) | In-process domain events between modules (`AccessGranted`, `CohortMembershipStarted`, `AssetReady`, `OfferingOpened`) | Transactional outbox for free: the event is persisted in the same transaction as the state change and re-delivered on restart if a listener failed. Already on the Modulith stack. |
 | **`processing_job` table** | Long or external work: probe/transcode/verify, STT, LLM, bulk import, email, sweeps | Durable, queryable status for UIs ("processing 60%"), retries with backoff, leases, manual retry — all in the DB we already run. |
 | **Amazon SQS** (`media-events` + DLQ) | *Inbound* AWS events: S3 ObjectCreated, MediaConvert job state (EventBridge), IVS stream/recording events (EventBridge), Transcribe completion | These producers can only emit to AWS targets; SQS buffers them durably when workers are down. |
 | **Polling reconcilers** | Safety net for every external dependency | Events get lost or arrive out of order; reconciling with the provider's API makes the system converge. |
@@ -62,11 +62,11 @@ We never claim exactly-once. Every handler is written so that running it twice h
 | Layer | Technique |
 |---|---|
 | Job creation | `processing_job.idempotency_key UNIQUE` → `INSERT ... ON CONFLICT DO NOTHING` |
-| Domain effects | Natural unique keys: `enrollment(user_id, course_offering_id)`, `access_grant(source, source_ref_id)`, `payment_transaction(gateway, gateway_payment_id, type)`, `content_asset(live_session_id)`, `media_rendition(asset, generation, kind, height, language)`, `lecture_artifact(asset, type, version)` |
+| Domain effects | Natural unique keys: `enrollment(user_id, course_offering_id)`, `access_grant(source, source_ref_id)`, `content_asset(live_session_id)`, `media_rendition(asset, generation, kind, height, language)`, `lecture_artifact(asset, type, version)` |
 | State transitions | Conditional updates: `UPDATE content_asset SET media_status='READY' WHERE id=? AND media_status='PROCESSING' AND processing_generation=?` — stale or duplicate events affect 0 rows |
-| External submissions | Provider client tokens: MediaConvert `ClientRequestToken` = job id; Transcribe job name = job id; payment gateway order `receipt` = order id |
+| External submissions | Provider client tokens: MediaConvert `ClientRequestToken` = job id; Transcribe job name = job id |
 | HTTP | `Idempotency-Key` table for client POSTs (08 §1.5) |
-| Inbound SQS / webhooks | Dedupe by provider event id (`payment_webhook_event` unique; SQS handler checks job/asset state before acting) |
+| Inbound SQS | Dedupe by provider event id; SQS handler checks job/asset state before acting |
 | Emails | `EMAIL_SEND` key = `{template}:{subjectId}:{purpose}` → no duplicate "welcome" mails on retries |
 
 ## 4. SQS consumption
@@ -86,7 +86,7 @@ We never claim exactly-once. Every handler is written so that running it twice h
 | MediaConvert job ERROR | Retryable codes → resubmit (new generation not needed; same output prefix overwritten); input errors → asset `REJECTED` with reason. |
 | Partial outputs (720p missing) | `MEDIA_VERIFY` fails → retry transcode; after max → `FAILED`, alert, admin "reprocess". |
 | Provider timeout (STT/LLM) | Retryable with backoff; circuit breaker for sustained failure. |
-| Payment webhook arrives before checkout confirm / twice / out of order | Single idempotent `PaymentCaptureHandler`, forward-only order state machine (05 §5). |
+| Contract team submits the same grant twice | `Idempotency-Key` replay; active-grant check → 409 (05 §5). |
 | Duplicate `AssetReady` | AI jobs keyed by source version → no duplicates. |
 | Cancellation | User/admin cancel: `PENDING` → `CANCELLED`; `WAITING_EXTERNAL` → best-effort provider cancel then `CANCELLED`; late provider events for cancelled jobs are ignored (state guard). |
 | Bulk import crash mid-file | Chunked commits; rows already `INVITED/CREATED` are skipped on resume. |
@@ -99,7 +99,6 @@ flowchart LR
   subgraph API[API role]
     TX[Business transaction] -->|same tx| OUT[(event_publication)]
     TX -->|same tx| JOBS[(processing_job)]
-    WH[Webhook endpoint] -->|persist + ack| WHE[(payment_webhook_event)]
   end
   subgraph AWS
     S3E[S3 events] --> Q[[SQS media-events]]
@@ -114,12 +113,11 @@ flowchart LR
     H -- retryable --> BACK[PENDING run_after=backoff+jitter]
     H -- exhausted --> DEAD[DEAD + alert]
     H -- outage --> CB[circuit open → reschedule]
-    REC[Reconcilers<br/>stale WAITING_EXTERNAL → provider GetJob<br/>PAYMENT_PENDING → gateway fetch<br/>INITIATED uploads → HeadObject<br/>expired leases → PENDING] --> JOBS
+    REC[Reconcilers<br/>stale WAITING_EXTERNAL → provider GetJob<br/>INITIATED uploads → HeadObject<br/>expired leases → PENDING] --> JOBS
     MOD[Modulith republisher<br/>incomplete event_publication on start + every 5 min] --> L[module listeners]
   end
   OUT --> MOD
   JOBS --> CLAIM
-  WHE --> CLAIM
   DLQ -. alarm + manual redrive .-> Q
   DEAD -. admin retry API .-> JOBS
 ```
@@ -141,7 +139,7 @@ Stack: Micrometer (already via Actuator) → CloudWatch (or Prometheus/Grafana i
 |---|---|---|
 | Registration | `auth.register{result}`, `auth.verify{result}`, `auth.login{result}`, `auth.duplicate_signup`, `invite.accept{result}`, `invite.send_fail` | login failure rate > 30% for 10 min (stuffing); email send failures > 5% |
 | Enrollment & access | `enrollment.created{channel}`, `grant.revoked{reason}`, `access.decision{result,reason}`, `access.cross_tenant_denied` | **any** `cross_tenant_denied` spike > 10/min; `access.decision{deny}` ratio jump |
-| Payments | `checkout.started/paid/failed`, `webhook.received{gateway,valid}`, `reconcile.fixed` | invalid signature webhooks > 0; paid-without-grant > 0 after 5 min |
+| Staff grants | `grant.created{source}`, `grant.revoked{reason}`, `grant.reference_reused` | revocations with `REFUNDED_OFFLINE` spike; grants by a single staff user > 200/day (misuse) |
 | Uploads/media | `upload.completed_ratio`, `asset.time_to_ready` (p50/p95), `transcode.duration`, `media.failed`, `job.retries{type}` | time_to_ready p95 > 2× duration + 15 min; failed > 5%/day |
 | Jobs | `job.backlog{type,status}`, `job.age_oldest_pending{type}`, `job.dead{type}`, SQS `ApproximateNumberOfMessagesVisible`, DLQ depth | DLQ > 0; dead > 0; oldest pending > 30 min |
 | AI | `ai.backlog`, `ai.tokens{model,type}`, `ai.audio_minutes`, `ai.cost_usd{org}`, `qa.ungrounded_rate` | daily AI spend > budget × 0.8 |
@@ -149,4 +147,4 @@ Stack: Micrometer (already via Actuator) → CloudWatch (or Prometheus/Grafana i
 | Live | `live.sessions{scheduled,started,missed}`, `live.concurrent_viewers`, `live.viewer_hours`, `live.join_fail`, `live.recording_ready_latency` | session scheduled but not live at +10 min; recording not ready at +2 h |
 | Cost | CloudFront `BytesDownloaded` by distribution, IVS output hours, MediaConvert minutes, S3 storage growth; daily estimated cost (Cost Explorer/Budgets) | AWS Budgets at 50/80/100% of monthly plan; anomaly detection on CloudFront bytes (sudden 3× day-over-day) |
 
-Dashboards: (1) Learner funnel, (2) Media pipeline health, (3) Live operations, (4) Cost & usage by org/course, (5) Security (auth failures, cross-tenant denials, webhook signatures).
+Dashboards: (1) Learner funnel, (2) Media pipeline health, (3) Live operations, (4) Cost & usage by org/course, (5) Security (auth failures, cross-tenant denials, staff grant activity).

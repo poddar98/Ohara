@@ -159,7 +159,7 @@ No stage is counted twice: live recordings appear in storage and transcription o
 | B2C, 2,000 MAU | 30% pay ₹1,000 / 100% pay | ₹6.0 lakh / ₹20.0 lakh |
 | B2C, 5,000 MAU | 30% / 100% | ₹15.0 lakh / ₹50.0 lakh |
 
-Against infrastructure of ₹1.1–2.1 lakh (L) or ₹9.1–14.8 lakh (H). **Revenue minus infrastructure is not profit:** excluded are GST treatment of the price points, payment-gateway fees (typically ~2% — verify contracted rate), refunds/chargebacks, salaries, content production, instructor/college revenue share, support, sales and marketing. Whether ₹1,000 is monthly or one-time (Q-01) changes B2C revenue by an order of magnitude over a year.
+Against infrastructure of ₹1.1–2.1 lakh (L) or ₹9.1–14.8 lakh (H). **Revenue minus infrastructure is not profit:** excluded are GST treatment of the price points, bank charges on transfers, refunds (handled offline by the contract team), salaries, content production, instructor/college revenue share, support, sales and marketing. Whether ₹1,000 is monthly or one-time (Q-01) changes B2C revenue by an order of magnitude over a year.
 
 ## 7. Optimization priorities (ranked by impact on Scenario H)
 

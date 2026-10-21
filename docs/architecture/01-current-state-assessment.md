@@ -67,7 +67,7 @@ This document records only what the repository actually contains. Recommendation
 |---|---|
 | Course / curriculum / content | **[Gap]** none |
 | Enrollment / entitlement / progress | **[Gap]** none |
-| Orders / payments (Razorpay, Cashfree per `initial_prompt.md`) | **[Gap]** none |
+| Orders / payments (Razorpay, Cashfree per `initial_prompt.md`) | **[Gap]** none — and **not needed**: payments/refunds are handled offline by the contract team via bank transfer (decision 2026-10-21, ADR-012) |
 | Media upload / S3 / CloudFront / MediaConvert | **[Gap]** none; no AWS SDK dependency |
 | Live streaming | **[Gap]** none |
 | AI (transcription, LLM) | **[Gap]** none |
@@ -112,15 +112,15 @@ This document records only what the repository actually contains. Recommendation
 
 **Modify:** `users` (status values, drop duplicated names later), FK cascade rules, timestamp types → `TIMESTAMPTZ`/`Instant`; `JwtTokenProvider` subject → user UUID and add `ver`/`sid` claims; `ApiExceptionHandler` → RFC 9457 problem details with typed exceptions; `AppUserDetailsService` (statuses); `SecurityConfig` (rate-limit filter, new public routes); `RegisterRequest`/`AuthService.register` (verification state).
 
-**New modules:** `organization` (orgs, memberships, cohorts, invitations, bulk import), `course` (catalog, versions, curriculum), `content` (assets, uploads, renditions), `enrollment` (offerings, enrollments, access grants, progress, `ContentAccessService`), `commerce` (orders, payments, webhooks), `media` (transcode pipeline, playback signing), `live` (IVS sessions, attendance), `ai` (transcripts, artifacts, Q&A), `notification` (email), `platform` (jobs, outbox, audit) — see `02-target-architecture.md`.
+**New modules:** `organization` (orgs, memberships, cohorts, invitations, bulk import), `course` (catalog, versions, curriculum), `content` (assets, uploads, renditions), `enrollment` (offerings, enrollments, access grants, progress, `ContentAccessService`), `media` (transcode pipeline, playback signing), `live` (IVS sessions, attendance), `ai` (transcripts, artifacts, Q&A), `notification` (email), `platform` (jobs, outbox, audit) — see `02-target-architecture.md`.
 
 ## 10. Assumptions that cannot be verified from the repo
 
 | Assumption | Why it matters |
 |---|---|
 | AWS will be the cloud (S3, CloudFront, MediaConvert, IVS, SQS) — `initial_prompt.md` says services are "not yet bought" | Provider adapters must start as mocks |
-| Primary audience is in India (₹ pricing, Razorpay/Cashfree) | Region choice `ap-south-1`, CDN/IVS India rates, DPDP Act |
+| Primary audience is in India (₹ pricing) | Region choice `ap-south-1`, CDN/IVS India rates, DPDP Act |
 | A web SPA and possibly mobile apps will consume the API | Cookie vs header refresh, CORS, signed-cookie domains |
 | No existing production data | Migrations V3+ can alter V2 tables without backfill risk |
-| B2C pricing basis (subscription vs per-course) undecided | Subscription tables deferred |
+| B2C pricing basis (subscription vs per-course) undecided | Only affects how long staff grants last (payments are offline) |
 | Email delivery provider undecided | Verification/reset/invite flows need an adapter |

@@ -8,7 +8,7 @@ Status: **Proposed** · 2026-10-21 · Builds on `01-current-state-assessment.md`
 2. **Bytes never transit the JVM.** Uploads go browser → S3 (presigned); playback goes player → CloudFront → S3. The backend issues authorizations, never streams video.
 3. **Separate the things that change independently:** identity ≠ membership ≠ enrollment ≠ entitlement ≠ payment ≠ progress; media readiness ≠ AI readiness.
 4. **Durable state in PostgreSQL.** Jobs, outbox events and idempotency keys live in Postgres. SQS only carries external AWS events in. Kafka/Debezium is deferred until a consumer actually needs a log (ADR-008).
-5. **Every external provider behind a port** (`ObjectStorage`, `Transcoder`, `CdnSigner`, `LiveStreamingProvider`, `SpeechToText`, `LlmClient`, `PaymentGateway`, `EmailSender`) with a mock adapter first, matching `initial_prompt.md`.
+5. **Every external provider behind a port** (`ObjectStorage`, `Transcoder`, `CdnSigner`, `LiveStreamingProvider`, `SpeechToText`, `LlmClient`, `EmailSender`) with a mock adapter first, matching `initial_prompt.md`.
 6. **Authorization is centralized** in `ContentAccessService` (resource access) and `OrgAuthorizationService` (administrative actions). Controllers never decide access by themselves.
 
 ## 2. Module map
@@ -21,7 +21,6 @@ Status: **Proposed** · 2026-10-21 · Builds on `01-current-state-assessment.md`
 | `course` | `course_category`, `course`, `course_instructor`, `course_version`, `course_module`, `lesson`, `lesson_content` | `CurriculumQuery`, `CoursePublishing` | `content` (asset refs), `organization` |
 | `content` | `content_asset`, `media_upload`, `media_rendition` | `AssetQuery`, `AssetRegistration` | `platform` |
 | `enrollment` | `course_offering`, `enrollment`, `access_grant`, `lesson_progress` | **`ContentAccessService`**, `EnrollmentService` | `course`, `organization` |
-| `commerce` | `purchase_order`, `order_item`, `payment_transaction`, `payment_webhook_event` | `CheckoutService` | `enrollment` (via events) |
 | `media` | (no tables of its own; drives `content` state + `processing_job`) | `PlaybackAuthorizationService` | `content`, `enrollment`, `platform` |
 | `live` | `live_session`, `live_attendance` | `LiveSessionService` | `course`, `enrollment`, `content` |
 | `ai` | `transcript_segment`, `lecture_chapter`, `lecture_artifact` | `LectureArtifactQuery`, `LectureQaService` | `content`, `enrollment` |
@@ -29,7 +28,7 @@ Status: **Proposed** · 2026-10-21 · Builds on `01-current-state-assessment.md`
 | `platform` (shared kernel) | `processing_job`, `event_publication` (Modulith), `idempotency_key`, `audit_event` | `JobScheduler`, `AuditLog`, `Idempotency` | — |
 | `common` (existing) | — | web error model, clock, ids | — |
 
-Cross-module communication: synchronous calls through named interfaces for queries; **Spring Modulith application events** (`@ApplicationModuleListener`, persisted by the JDBC event publication registry) for side effects that must survive crashes — e.g. `PaymentCaptured` → enrollment grants access; `AssetReady` → course can publish; `LiveRecordingAvailable` → content registers asset.
+Cross-module communication: synchronous calls through named interfaces for queries; **Spring Modulith application events** (`@ApplicationModuleListener`, persisted by the JDBC event publication registry) for side effects that must survive crashes — e.g. `CohortMembershipEnded` → enrollment revokes grants; `AssetReady` → course can publish; `LiveRecordingAvailable` → content registers asset.
 
 ## 3. High-level system architecture (diagram 1)
 
@@ -60,7 +59,6 @@ flowchart LR
   IVS[IVS channel + Chat]
   STT[Speech-to-text provider]
   LLM[LLM provider]
-  PAY[Razorpay / Cashfree]
   MAIL[Email provider]
 
   WEB -- REST + JWT --> API
@@ -84,8 +82,6 @@ flowchart LR
   MC --> S3DEL
   WRK --> STT
   WRK --> LLM
-  API -- create order / verify --> PAY
-  PAY -- webhooks --> API
   WRK --> MAIL
   API -- create channel, tokens --> IVS
 ```
@@ -96,7 +92,7 @@ Redis is **not** on the critical path in the target design. It is kept optional 
 
 | Component | Responsibility | Not responsible for |
 |---|---|---|
-| API role | AuthN, authorization, domain writes, presigning, playback/live tokens, webhooks intake (verify + persist + ack) | Transcoding, transcription, LLM calls, long polling |
+| API role | AuthN, authorization, domain writes, presigning, playback/live tokens, staff access grants | Transcoding, transcription, LLM calls, long polling |
 | Worker role | Claims `processing_job` rows (`FOR UPDATE SKIP LOCKED`), polls SQS, calls providers, reconciles state, sends email, sweeps stale uploads/jobs | Serving user traffic |
 | PostgreSQL | Source of truth incl. job state and outbox | Large blobs, chat history at scale |
 | S3 source bucket | Immutable, versioned originals (uploads + live recordings) | Delivery |
@@ -105,7 +101,6 @@ Redis is **not** on the critical path in the target design. It is kept optional 
 | MediaConvert | ABR HLS packaging, thumbnails | Validation that output is playable (worker verifies) |
 | IVS | Live ingest, transcoding, distribution, chat transport, recording to S3 | Scheduling, attendance, who may join |
 | STT / LLM providers | Transcripts, summaries, chapters, quiz drafts, Q&A answers | Access control, persistence |
-| Payment gateways | Collect payment, emit signed webhooks | Granting access |
 
 ## 5. Deployment view (initial)
 
@@ -129,4 +124,4 @@ Redis is **not** on the critical path in the target design. It is kept optional 
 
 ## 7. What is explicitly out of the target (for now)
 
-Kafka/Debezium, a vector database, DRM (Widevine/FairPlay), multi-region active-active, per-tenant databases, self-hosted FFmpeg fleet, custom CDN, microservices. Each has a re-evaluation trigger in `13-open-questions-and-decisions.md`.
+**Online payments.** All payments (B2B contracts and B2C individuals) and refunds are handled offline by the contract team via bank transfer. Ohara stores no orders, payments or gateway credentials; access is granted and revoked by authorised staff with a reference to the contract/bank transaction (ADR-012). Also out: Kafka/Debezium, a vector database, DRM (Widevine/FairPlay), multi-region active-active, per-tenant databases, self-hosted FFmpeg fleet, custom CDN, microservices. Each has a re-evaluation trigger in `13-open-questions-and-decisions.md`.

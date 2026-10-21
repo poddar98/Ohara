@@ -32,9 +32,11 @@ Roles: platform (`ROLE_PLATFORM_ADMIN`, `ROLE_PLATFORM_SUPPORT`, `ROLE_USER`) on
 | REPORT_VIEW | ✔ | ✔ | own org | own cohorts/courses | own data |
 | AI_ARTIFACT_APPROVE | ✔ | | own org | own courses | |
 | ENROLLMENT_GRANT / REVOKE | ✔ | | own org offerings | | |
-| REFUND | ✔ | | | | |
+| B2C_ACCESS_GRANT / REVOKE (offline payments) | ✔ | | | | |
 | IMPERSONATE (support) | ✔ (audited, read-only) | ✔ (audited, read-only) | | | |
-| LEARN / PURCHASE | ✔ | ✔ | ✔ | ✔ | ✔ |
+| LEARN | ✔ | ✔ | ✔ | ✔ | ✔ |
+
+`ROLE_ENROLLMENT_MANAGER` (contract team) holds only `B2C_ACCESS_GRANT / REVOKE` and the reconciliation report; it cannot see course content admin, org data or learner progress beyond enrollment status.
 
 Invariants: an org must keep ≥ 1 ORG_ADMIN; an ORG_ADMIN cannot grant platform roles; instructors can't see learners outside cohorts linked to their offerings.
 
@@ -90,27 +92,26 @@ if (d.denied()) throw d.toException();             // 404 for cross-tenant, 403 
 - Account lockout on credential failures (04 §3.3); CAPTCHA after repeated failures (provider TBD).
 - B2C account sharing: concurrent playback session cap (06 §6), device list in account settings.
 
-## 7. Webhooks and provider credentials
+## 7. Provider credentials
 
-- **Payment webhooks:** verify HMAC signature (Razorpay `X-Razorpay-Signature` over raw body with webhook secret; Cashfree signature header with timestamp) **before** parsing; reject if timestamp skew > 5 min (where provided); persist raw event; respond 200 quickly; process async. Never trust client-provided payment status.
+- **No payment integration:** payments/refunds are offline (ADR-012), so there are no gateway keys or payment webhooks to protect. The risk moves to **staff grants**: dedicated role, mandatory `externalReference`, Idempotency-Key, full audit, daily reconciliation export, alert on unusual grant volume, and MFA for staff accounts (Q-18 follow-up).
 - **AWS events** arrive via EventBridge → SQS with IAM — no public HTTP endpoint to protect.
-- **Secrets:** AWS Secrets Manager (JWT secret, gateway keys/webhook secrets, CloudFront private key, IVS playback private key, LLM/STT API keys). Loaded at start-up into memory; never logged; rotation runbooks. IAM roles per role (api, worker) with least privilege; no long-lived AWS keys in config.
+- **Secrets:** AWS Secrets Manager (JWT secret, CloudFront private key, IVS playback private key, LLM/STT API keys). Loaded at start-up into memory; never logged; rotation runbooks. IAM roles per role (api, worker) with least privilege; no long-lived AWS keys in config.
 - **LLM data handling:** send only transcript text (no PII), use provider settings that disable training on inputs; record consent type `AI_PROCESSING` where required by org contract.
 
 ## 8. Audit, retention and privacy
 
-**Audited actions** (`audit_event`): authentication anomalies (lockouts, reuse detection), role/membership changes, invitations, imports, offering open/close, grant/revoke, course publish/archive, asset retire/delete/reprocess, live session ingest-key views, refunds, admin impersonation, data exports, account deactivation/deletion, cross-tenant denials.
+**Audited actions** (`audit_event`): authentication anomalies (lockouts, reuse detection), role/membership changes, invitations, imports, offering open/close, grant/extend/revoke (with contract/bank reference), course publish/archive, asset retire/delete/reprocess, live session ingest-key views, refunds, admin impersonation, data exports, account deactivation/deletion, cross-tenant denials.
 
 **Retention schedule (initial; confirm with legal — Q-08):**
 | Data | Retention |
 |---|---|
-| Orders, payments, refunds | 8 years |
+| Access grants incl. contract/bank references | permanent (finance reconciliation; payment records themselves live with the contract team) |
 | Enrollments, progress, attendance | Life of the platform (anonymised with the user) |
 | Audit events | 2 years |
 | Refresh tokens | expiry + 30 days |
 | One-time tokens | expiry + 7 days |
 | Bulk import rows | 90 days |
-| Payment webhook payloads | 1 year |
 | AI Q&A logs | 90 days |
 | Source videos | while referenced by any version; retired → 1 year in archive tier, then delete (unless contract says otherwise) |
 | Application logs | 30 days hot, 90 days archive; no tokens/PII in logs (mask emails) |
@@ -120,6 +121,6 @@ if (d.denied()) throw d.toException();             // 404 for cross-tenant, 403 
 ## 9. Security testing
 
 - **Tenant-isolation test suite:** fixture with two orgs, each with cohorts, courses, assets, sessions; for every endpoint in 08, a parameterised test calls it as a user of org A with ids from org B and asserts 404/403 and no data in body. Runs in CI.
-- **Entitlement tests:** expired grant, revoked grant, wrong version, preview-only, suspended org, removed cohort member, refunded order → playback/download/join/Q&A all denied.
-- **Payment tests:** duplicate webhooks, out-of-order events, invalid signatures, confirm-without-webhook, double capture.
+- **Entitlement tests:** expired grant, revoked grant, wrong version, preview-only, suspended org, removed cohort member, grant revoked for offline refund → playback/download/join/Q&A all denied.
+- **Staff-grant tests:** only `ROLE_ENROLLMENT_MANAGER`/platform admin can grant; missing reference rejected; duplicate submit idempotent; revoke blocks playback on next refresh.
 - Dependency scanning (OWASP Dependency-Check/GitHub Dependabot), secret scanning on the repo, ZAP baseline against staging, a pre-launch external penetration test.

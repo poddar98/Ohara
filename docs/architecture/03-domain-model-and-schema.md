@@ -59,10 +59,6 @@ erDiagram
   enrollment ||--o{ access_grant : "authorized by"
   enrollment ||--o{ lesson_progress : tracks
 
-  users ||--o{ purchase_order : places
-  purchase_order ||--o{ order_item : contains
-  course_offering ||--o{ order_item : "sold as"
-  purchase_order ||--o{ payment_transaction : "paid by"
 
   cohort ||--o{ live_session : schedules
   course_offering ||--o{ live_session : "belongs to"
@@ -92,7 +88,7 @@ erDiagram
 `user_id UUID PK FK→users RESTRICT`; `display_name VARCHAR(128) NOT NULL`; `first_name VARCHAR(100) NOT NULL`; `last_name VARCHAR(100) NOT NULL`; **new:** `phone_e164 VARCHAR(20) NULL`, `avatar_asset_id UUID NULL FK→content_asset`, `locale VARCHAR(16) NOT NULL DEFAULT 'en-IN'`, `time_zone VARCHAR(64) NOT NULL DEFAULT 'Asia/Kolkata'`, `updated_at TIMESTAMPTZ NOT NULL`. 1:1 with users.
 
 ### 2.3 `user_role` (existing — narrowed)
-Platform-level roles only: `CHECK (name IN ('ROLE_USER','ROLE_PLATFORM_ADMIN','ROLE_PLATFORM_SUPPORT'))`. Org roles live on `organization_membership`. Add `granted_at TIMESTAMPTZ`, `granted_by UUID`. Index `(user_id)` is covered by the existing unique `(user_id,name)`.
+Platform-level roles only: `CHECK (name IN ('ROLE_USER','ROLE_PLATFORM_ADMIN','ROLE_PLATFORM_SUPPORT','ROLE_ENROLLMENT_MANAGER'))` — `ROLE_ENROLLMENT_MANAGER` is the contract team: may grant/extend/revoke access for B2C offerings and record the offline payment reference, nothing else. Org roles live on `organization_membership`. Add `granted_at TIMESTAMPTZ`, `granted_by UUID`. Index `(user_id)` is covered by the existing unique `(user_id,name)`.
 
 ### 2.4 `auth_identity`, `password_credential` (existing — kept)
 - `auth_identity.provider` `CHECK IN ('local','google','saml')` (future SSO for colleges). Add `created_at`. `UNIQUE(provider, identifier)` kept; for `local`, `identifier = lower(email)`.
@@ -143,8 +139,8 @@ Add `family_id UUID NOT NULL` (all rotations of one login share it; reuse revoke
 - **Expiry:** sweeper marks `EXPIRED`; acceptance checks `expires_at` regardless.
 
 ### 3.6 `bulk_import_job` / `bulk_import_row`
-- `bulk_import_job`: `id`; `organization_id`; `cohort_id NULL`; `uploaded_by`; `source_object_key VARCHAR(512)` (S3, private); `file_sha256 CHAR(64)`; `status CHECK IN ('UPLOADED','VALIDATING','VALIDATED','PROCESSING','COMPLETED','COMPLETED_WITH_ERRORS','FAILED','CANCELLED')`; `total_rows`, `succeeded_rows`, `failed_rows INT`; `error_report_key VARCHAR(512) NULL`; `mode CHECK IN ('INVITE','CREATE_ACCOUNTS')`; audit. `UNIQUE (organization_id, file_sha256) WHERE status NOT IN ('FAILED','CANCELLED')` (accidental double upload).
-- `bulk_import_row`: `id`; `job_id FK`; `row_number INT`; `email`, `first_name`, `last_name`, `external_ref`; `status CHECK IN ('PENDING','INVITED','LINKED_EXISTING','CREATED','SKIPPED_DUPLICATE','FAILED')`; `error_code VARCHAR(64)`, `error_detail VARCHAR(500)`; `user_id NULL`; `invitation_id NULL`. `UNIQUE (job_id, row_number)`; index `(job_id, status)`. Rows retained 90 days, then purged (job summary kept).
+- `bulk_import_job`: `id`; `organization_id`; `cohort_id NULL`; `uploaded_by`; `source_object_key VARCHAR(512)` (S3, private); `file_sha256 CHAR(64)`; `status CHECK IN ('UPLOADED','VALIDATING','VALIDATED','PROCESSING','COMPLETED','COMPLETED_WITH_ERRORS','FAILED','CANCELLED')`; `total_rows`, `succeeded_rows`, `failed_rows INT`; `error_report_key VARCHAR(512) NULL`; `mode CHECK IN ('INVITE','CREATE_ACCOUNTS','GRANT_ACCESS')` (`GRANT_ACCESS`: contract team bulk-enrolls paid B2C learners into one `course_offering`, with a per-row `external_reference`); `course_offering_id UUID NULL` (GRANT_ACCESS only); `organization_id` nullable for GRANT_ACCESS jobs; audit. `UNIQUE (organization_id, file_sha256) WHERE status NOT IN ('FAILED','CANCELLED')` (accidental double upload).
+- `bulk_import_row`: `id`; `job_id FK`; `row_number INT`; `email`, `first_name`, `last_name`, `external_ref` (roll number, or contract/bank reference for GRANT_ACCESS); `status CHECK IN ('PENDING','INVITED','LINKED_EXISTING','CREATED','SKIPPED_DUPLICATE','FAILED')`; `error_code VARCHAR(64)`, `error_detail VARCHAR(500)`; `user_id NULL`; `invitation_id NULL`. `UNIQUE (job_id, row_number)`; index `(job_id, status)`. Rows retained 90 days, then purged (job summary kept).
 
 ---
 
@@ -221,21 +217,21 @@ PENDING_UPLOAD → UPLOADED → PROCESSING → READY
 
 ### 6.1 `course_offering`
 - **Purpose:** *how* a course is delivered to a population: B2B (org + optional cohort + window) or B2C (public listing + price).
-- **Columns:** `id`; `course_id NOT NULL FK`; `channel CHECK IN ('B2B','B2C')`; `organization_id UUID NULL FK`; `cohort_id UUID NULL FK`; `version_policy CHECK IN ('PINNED','LATEST_ON_ENROLL')` default `LATEST_ON_ENROLL`; `pinned_course_version_id NULL FK`; `starts_at TIMESTAMPTZ NULL`, `ends_at TIMESTAMPTZ NULL`; `access_duration_days INT NULL` (B2C: access length after purchase; NULL = lifetime of offering); `price_minor BIGINT NULL`, `currency CHAR(3) NULL`; `status CHECK IN ('DRAFT','OPEN','CLOSED','ARCHIVED')`; `seat_limit INT NULL`; audit.
-- **Constraints:** `CHECK (channel='B2B' AND organization_id IS NOT NULL OR channel='B2C' AND organization_id IS NULL)`; `CHECK (channel='B2C' OR price_minor IS NULL)`; `CHECK (version_policy='LATEST_ON_ENROLL' OR pinned_course_version_id IS NOT NULL)`; `UNIQUE (course_id, cohort_id) WHERE cohort_id IS NOT NULL AND status <> 'ARCHIVED'`.
+- **Columns:** `id`; `course_id NOT NULL FK`; `channel CHECK IN ('B2B','B2C')`; `organization_id UUID NULL FK`; `cohort_id UUID NULL FK`; `version_policy CHECK IN ('PINNED','LATEST_ON_ENROLL')` default `LATEST_ON_ENROLL`; `pinned_course_version_id NULL FK`; `starts_at TIMESTAMPTZ NULL`, `ends_at TIMESTAMPTZ NULL`; `access_duration_days INT NULL` (B2C: access length after the grant starts; NULL = lifetime of offering); `list_price_minor BIGINT NULL`, `currency CHAR(3) NULL` (**display only** — payment happens offline; Ohara never charges); `status CHECK IN ('DRAFT','OPEN','CLOSED','ARCHIVED')`; `seat_limit INT NULL`; audit.
+- **Constraints:** `CHECK (channel='B2B' AND organization_id IS NOT NULL OR channel='B2C' AND organization_id IS NULL)`; `CHECK (version_policy='LATEST_ON_ENROLL' OR pinned_course_version_id IS NOT NULL)`; `UNIQUE (course_id, cohort_id) WHERE cohort_id IS NOT NULL AND status <> 'ARCHIVED'`.
 - **Indexes:** `(organization_id, status)`; `(cohort_id)`; `(channel, status)` for B2C catalog.
 
 ### 6.2 `enrollment`
 - **Columns:** `id`; `user_id NOT NULL FK`; `course_offering_id NOT NULL FK`; `course_id NOT NULL` (denormalized for "my courses"); `organization_id UUID NULL` (copied from offering, tenant scoping); `course_version_id NOT NULL FK` (pinned at enrollment); `status CHECK IN ('ACTIVE','SUSPENDED','COMPLETED','EXPIRED','REVOKED','CANCELLED')`; `enrolled_at`, `completed_at`, `ended_at`; `progress_percent NUMERIC(5,2) NOT NULL DEFAULT 0` (cached); `last_activity_at`; audit + `version`.
-- **Constraints:** `UNIQUE (user_id, course_offering_id)` — the idempotency anchor for both B2B assignment and B2C purchase.
+- **Constraints:** `UNIQUE (user_id, course_offering_id)` — the idempotency anchor for both B2B cohort assignment and staff-granted B2C access.
 - **Indexes:** `(user_id, status)` (dashboard); `(course_offering_id, status)` (cohort reports); `(organization_id, course_id)` (org reports).
 - **Cardinality:** B2B ≈ learners × courses (5k × ~4 = 20k/yr); B2C a few thousand.
 - **Retention:** permanent (learning record).
 
 ### 6.3 `access_grant`
 - **Purpose:** the *reason* a user may access an enrollment's content, with its own window. Multiple grants may coexist (e.g. cohort assignment + admin extension).
-- **Columns:** `id`; `enrollment_id NOT NULL FK`; `user_id NOT NULL` (denormalized for the hot authorization query); `source CHECK IN ('COHORT_ASSIGNMENT','PURCHASE','ADMIN_GRANT','PROMOTION','SUBSCRIPTION')`; `source_ref_id UUID NULL` (cohort_membership id, order_item id, …); `scope CHECK IN ('FULL','PREVIEW')`; `valid_from TIMESTAMPTZ NOT NULL`; `valid_until TIMESTAMPTZ NULL`; `revoked_at TIMESTAMPTZ NULL`; `revoked_reason VARCHAR(64)`; `granted_by UUID NULL`; `created_at`.
-- **Constraints:** `UNIQUE (source, source_ref_id) WHERE source_ref_id IS NOT NULL` — **a payment or cohort membership can create at most one grant** (retry-safe). `CHECK (valid_until IS NULL OR valid_until > valid_from)`.
+- **Columns:** `id`; `enrollment_id NOT NULL FK`; `user_id NOT NULL` (denormalized for the hot authorization query); `source CHECK IN ('COHORT_ASSIGNMENT','CONTRACT','ADMIN_GRANT','PROMOTION')` (`CONTRACT` = access paid for offline and recorded by the contract team; `ADMIN_GRANT` = complimentary/extension); `source_ref_id UUID NULL` (cohort_membership id, bulk_import_row id, …); `external_reference VARCHAR(128) NULL` (contract number / bank UTR — **required when `source='CONTRACT'`**, `CHECK (source <> 'CONTRACT' OR external_reference IS NOT NULL)`); `note VARCHAR(500) NULL`; `scope CHECK IN ('FULL','PREVIEW')`; `valid_from TIMESTAMPTZ NOT NULL`; `valid_until TIMESTAMPTZ NULL`; `revoked_at TIMESTAMPTZ NULL`; `revoked_reason VARCHAR(64)` (`REMOVED_FROM_COHORT`, `REFUNDED_OFFLINE`, `CONTRACT_ENDED`, `ADMIN`, …); `revoked_by UUID NULL`; `granted_by UUID NULL`; `created_at`.
+- **Constraints:** `UNIQUE (source, source_ref_id) WHERE source_ref_id IS NOT NULL` — **a cohort membership or import row can create at most one grant** (retry-safe). Staff single grants are made idempotent by the `Idempotency-Key` header (08 §1.5). `CHECK (valid_until IS NULL OR valid_until > valid_from)`.
 - **Index:** `(user_id, enrollment_id) WHERE revoked_at IS NULL` — the authorization check (`ContentAccessService`) is "exists active grant with now() in window" for this enrollment.
 - **Retention:** permanent, append-mostly (revocation is an update of `revoked_at`, never a delete) → doubles as access history; separate `enrollment_audit` table not needed.
 
@@ -249,23 +245,17 @@ PENDING_UPLOAD → UPLOADED → PROCESSING → READY
 
 ---
 
-## 7. Commerce (`commerce` module)
+## 7. Payments — not modeled (offline)
 
-### 7.1 `purchase_order`
-`id`; `user_id FK`; `status CHECK IN ('CREATED','PAYMENT_PENDING','PAID','FAILED','CANCELLED','REFUNDED','PARTIALLY_REFUNDED')`; `total_minor BIGINT NOT NULL CHECK (>=0)`; `currency CHAR(3)`; `idempotency_key VARCHAR(64) NOT NULL`; `gateway CHECK IN ('RAZORPAY','CASHFREE','MOCK')`; `gateway_order_id VARCHAR(128) NULL`; `expires_at`; `paid_at`; audit + `version`. `UNIQUE (user_id, idempotency_key)`; `UNIQUE (gateway, gateway_order_id)`. Index `(user_id, created_at DESC)`. Concurrency guard against two open orders for the same offering: `order_item` partial unique below. Retention: ≥ 8 years (Indian tax record-keeping — confirm with finance, Q-08).
+**Decision (2026-10-21, ADR-012):** all payments and refunds — B2B contracts and B2C individuals — are handled by the contract team outside Ohara, by bank transfer. Ohara therefore has **no** `purchase_order`, `order_item`, `payment_transaction`, `payment_webhook_event` or `subscription` tables, no gateway integration and no checkout.
 
-### 7.2 `order_item`
-`id`; `order_id FK`; `course_offering_id FK`; `user_id` (denormalized); `unit_price_minor`, `quantity INT CHECK (=1 for courses)`; `status CHECK IN ('PENDING','FULFILLED','REFUNDED','CANCELLED')`; `UNIQUE (user_id, course_offering_id) WHERE status='PENDING'` (prevents concurrent duplicate purchase attempts).
+What Ohara keeps is the link from access to the commercial record:
+- `access_grant.source = 'CONTRACT'` with mandatory `external_reference` (contract no. / bank UTR), `granted_by`, `valid_from/valid_until`.
+- B2B: the contract is reflected by the org's licence (`organization.settings.licensed_course_ids`, Q-03) and offering windows; no per-learner money record.
+- Refund: contract team revokes the grant (`revoked_reason='REFUNDED_OFFLINE'`, `revoked_by`); progress stays.
+- Audit: every grant/extend/revoke writes `audit_event` with the reference, so finance can reconcile Ohara access against bank records via the report `GET /api/admin/access-grants?source=CONTRACT&from&to` (CSV).
 
-### 7.3 `payment_transaction`
-`id`; `order_id FK`; `gateway`; `gateway_payment_id VARCHAR(128) NOT NULL`; `type CHECK IN ('CAPTURE','REFUND')`; `status CHECK IN ('AUTHORIZED','CAPTURED','FAILED','REFUNDED')`; `amount_minor`; `currency`; `raw_status VARCHAR(64)`; `occurred_at`; `created_at`. `UNIQUE (gateway, gateway_payment_id, type)` — **webhook retries are no-ops**.
-
-### 7.4 `payment_webhook_event`
-`id`; `gateway`; `gateway_event_id VARCHAR(128) NOT NULL`; `event_type VARCHAR(64)`; `signature_valid BOOLEAN NOT NULL`; `payload JSONB NOT NULL`; `received_at`; `processed_at NULL`; `processing_error VARCHAR(500)`. `UNIQUE (gateway, gateway_event_id)`. Index `(processed_at) WHERE processed_at IS NULL`. Retention 1 year (payload has no card data; gateways never send PAN).
-
-`subscription` is **not** created until the B2C pricing basis is confirmed (Q-01). If adopted: `subscription(id, user_id, plan_code, status, current_period_start, current_period_end, gateway_subscription_id UNIQUE, cancel_at_period_end)` and grants with `source='SUBSCRIPTION'`.
-
----
+If online payment is ever introduced, the earlier commerce design (order, item, transaction, webhook-event tables with gateway-id uniqueness) can be added as a new module emitting grants with a new `source` value — the access model doesn't change.
 
 ## 8. Live classes (`live` module)
 
@@ -319,7 +309,7 @@ Created/managed by Spring Modulith's JDBC event publication registry (`spring-mo
 `key VARCHAR(64)`, `actor_user_id UUID`, `endpoint VARCHAR(128)`, `request_hash CHAR(64)`, `response_status INT`, `response_body JSONB`, `created_at`, `expires_at`. PK `(actor_user_id, endpoint, key)`. For `Idempotency-Key` on POSTs that create money/access/upload side effects (08 §1.5). TTL 24 h.
 
 ### 10.4 `audit_event`
-`id BIGSERIAL`; `occurred_at TIMESTAMPTZ`; `actor_user_id UUID NULL`; `actor_type CHECK IN ('USER','SYSTEM','WEBHOOK')`; `organization_id UUID NULL`; `action VARCHAR(64)` (e.g. `ENROLLMENT_REVOKED`, `ROLE_GRANTED`, `COURSE_PUBLISHED`, `ACCESS_DENIED_CROSS_TENANT`); `resource_type`, `resource_id`; `ip_hash`, `user_agent`; `details JSONB`. Indexes `(organization_id, occurred_at DESC)`, `(resource_type, resource_id)`. Append-only (no UPDATE/DELETE grants for the app role). Monthly range partitioning once > ~10M rows. Retention 2 years (configurable).
+`id BIGSERIAL`; `occurred_at TIMESTAMPTZ`; `actor_user_id UUID NULL`; `actor_type CHECK IN ('USER','SYSTEM')`; `organization_id UUID NULL`; `action VARCHAR(64)` (e.g. `ENROLLMENT_REVOKED`, `ROLE_GRANTED`, `COURSE_PUBLISHED`, `ACCESS_DENIED_CROSS_TENANT`); `resource_type`, `resource_id`; `ip_hash`, `user_agent`; `details JSONB`. Indexes `(organization_id, occurred_at DESC)`, `(resource_type, resource_id)`. Append-only (no UPDATE/DELETE grants for the app role). Monthly range partitioning once > ~10M rows. Retention 2 years (configurable).
 
 ---
 
@@ -328,7 +318,7 @@ Created/managed by Spring Modulith's JDBC event publication registry (`spring-mo
 | Question | Answer | Rationale |
 |---|---|---|
 | Separate `student` table? | **No.** Learner = `users` + `user_profile` + `organization_membership(role=LEARNER)` + `cohort_membership` + `enrollment`. | "Student" is a role in a context, not an identity; a separate table forces duplicates when a learner is also an instructor or B2C buyer. College-specific attributes (roll number) live on the membership (`external_ref`). |
-| Same user with B2B and B2C access? | **Yes.** One `users` row; B2B enrollment via a B2B offering + `COHORT_ASSIGNMENT` grant; B2C via B2C offering + `PURCHASE` grant. | `access_grant.source` distinguishes them; reports filter by `course_offering.channel`. |
+| Same user with B2B and B2C access? | **Yes.** One `users` row; B2B enrollment via a B2B offering + `COHORT_ASSIGNMENT` grant; B2C via B2C offering + staff-recorded `CONTRACT` grant (paid offline). | `access_grant.source` distinguishes them; reports filter by `course_offering.channel`. |
 | One course to multiple colleges? | **Yes.** One `course`, many `course_offering` rows (one per org/cohort). | Content is authored once; delivery windows/pricing differ per offering. |
 | Learner in multiple cohorts? | **Yes**, allowed by schema; restricted per org via `organization.settings.max_active_cohorts_per_learner`. | Electives / repeaters exist; uniqueness is per cohort. |
 | Asset reused across lessons? | **Yes.** `lesson_content` → `content_asset` many-to-one; RESTRICT FK prevents deleting a used asset. | Single physical copy, single transcode, single AI cost. |
@@ -365,9 +355,8 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |
 | V8__platform | processing_job, idempotency_key, audit_event; Modulith `event_publication` (via its schema init or explicit DDL) | Low |
-| V9__commerce | purchase_order, order_item, payment_transaction, payment_webhook_event | Low |
-| V10__live | `CREATE EXTENSION btree_gist`; live_session, live_attendance | Needs extension privilege on RDS (available) |
-| V11__ai | transcript_segment, lecture_chapter, lecture_artifact | Low |
-| V12__drop_users_name_columns | after code reads names only from `user_profile` | Expand/contract: done one release later |
+| V9__live | `CREATE EXTENSION btree_gist`; live_session, live_attendance | Needs extension privilege on RDS (available) |
+| V10__ai | transcript_segment, lecture_chapter, lecture_artifact | Low |
+| V11__drop_users_name_columns | after code reads names only from `user_profile` | Expand/contract: done one release later |
 
 Rules: never edit an applied migration; expand → migrate code → contract for renames/drops; large backfills run as jobs, not in migrations; `ddl-auto: validate` stays on.

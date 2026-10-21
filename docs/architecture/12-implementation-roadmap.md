@@ -12,7 +12,7 @@ This roadmap uses the architecture prompt's **R0–R6** and maps to them:
 |---|---|---|
 | R0 Assessment & design | — | This document set |
 | R1 Identity & institutional foundation | (2 hardening) + 9 (imports) | |
-| R2 Catalog, enrollment, B2C checkout | 3, 4 (progress), 7, 8 | Cart (6) folded in: single-course checkout needs no cart; a Redis cart is an optional learning exercise, not on the critical path |
+| R2 Catalog, enrollment, staff-granted B2C access | 3, 4 (progress) | **Cart (6), Order/checkout (7) and Payments (8) are dropped**: payments and refunds are handled offline by the contract team via bank transfer (ADR-012) |
 | R3 Video upload & playback | 4, 5 | |
 | R4 Live classes | new | |
 | R5 AI learning features | new | |
@@ -46,7 +46,7 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Testing:** unit tests per flow; Testcontainers Postgres ITs (fixes D12); tenant-isolation fixture (org A/B) started here; `ModularityTests` must pass with new modules.
 - **Acceptance criteria:**
   - Registering an existing email returns the same response as a new one and sends a notice email (mock captures it).
-  - Unverified users can't access non-preview content or checkout (verified by test).
+  - Unverified users can't access non-preview content or receive staff grants (verified by test).
   - An invited learner with an existing account joins without a new `users` row; email mismatch → 409.
   - Removing a learner from a cohort leaves `cohort_membership` with `left_at` set and no deleted rows.
   - Import of 5,000 rows with 3% invalid completes with an error report; re-running after a forced crash produces no duplicates.
@@ -54,23 +54,23 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Risks:** auth refactor regressions → keep `AuthFlowIntegrationTest` green throughout; token claim change logs everyone out once (acceptable pre-launch).
 - **Out of scope:** SSO/SAML, custom roles, SMS OTP.
 
-## R2 — Course catalog, enrollment and B2C checkout
-- **Objective:** courses with versions, curriculum, B2B offerings, B2C purchase, `ContentAccessService`, progress.
-- **Dependencies:** R1 (orgs, cohorts, jobs, outbox). Payment gateway sandbox accounts (mock first). `content_asset` table exists (V6) but only documents/images upload here; videos in R3.
-- **DB:** V5 catalog, V6 content, V7 enrollment, V9 commerce.
+## R2 — Course catalog, enrollment and staff-granted B2C access
+- **Objective:** courses with versions, curriculum, B2B offerings, B2C access granted by the contract team after offline payment, `ContentAccessService`, progress.
+- **Dependencies:** R1 (orgs, cohorts, jobs, outbox). `content_asset` table exists (V6) but only documents/images upload here; videos in R3.
+- **DB:** V5 catalog, V6 content, V7 enrollment (incl. `access_grant.external_reference`, `ROLE_ENROLLMENT_MANAGER`).
 - **API:** 08 §4, §5 (+ document assets from §6).
-- **Infra:** S3 for documents (or mock storage); Razorpay/Cashfree sandbox.
-- **Tasks:** course/version/module/lesson/content CRUD with draft immutability trigger; publish checklist; offerings & fan-out listener; enrollment + grants; `ContentAccessService` with `checkMany`; progress API; `PaymentGateway` port + mock + Razorpay adapter; webhook verification; reconciliation job; refunds; version migration.
-- **Testing:** property tests for reorder; publish/immutability tests; entitlement matrix tests (10 §9); payment idempotency tests (duplicate/out-of-order webhooks, confirm without webhook, concurrent checkout).
+- **Infra:** S3 for documents (or mock storage).
+- **Tasks:** course/version/module/lesson/content CRUD with draft immutability trigger; publish checklist; offerings & fan-out listener; enrollment + grants; `ContentAccessService` with `checkMany`; progress API; staff grant / extend / revoke endpoints + `GRANT_ACCESS` bulk import + reconciliation CSV export; version migration.
+- **Testing:** property tests for reorder; publish/immutability tests; entitlement matrix tests (10 §9); staff-grant tests (role restriction, mandatory reference, idempotent resubmit, revoke → playback denied).
 - **Acceptance criteria:**
   - Publishing v2 leaves existing enrollments on v1; new enrollees get v2; migration preserves completion by `lesson_key`.
   - Deleting a lesson never deletes an asset; deleting a referenced asset → 409.
-  - Same webhook delivered 5× creates exactly one `payment_transaction` and one `access_grant`.
-  - Client-reported success without gateway capture grants nothing.
+  - The same grant submitted 5× (same Idempotency-Key) creates exactly one enrollment and one `access_grant`; a grant without `externalReference` is rejected.
+  - Only `ROLE_ENROLLMENT_MANAGER`/platform admin can grant B2C access; every grant/revoke appears in the reconciliation export with staff member and reference.
   - A user with B2B and B2C enrollments sees both, with channel shown; revoking the B2B one leaves B2C access intact.
   - `ContentAccessService` p95 < 10 ms on a seeded DB of 50k enrollments.
-- **Risks:** curriculum versioning complexity → keep "minor publish" out until needed; gateway sandbox quirks.
-- **Out of scope:** subscriptions (until Q-01), coupons/promotions engine, certificates, assessments/question banks (separate module later).
+- **Risks:** curriculum versioning complexity → keep "minor publish" out until needed; contract-team process for typo'd emails (revoke + re-grant) documented.
+- **Out of scope:** any online payment, checkout, cart or gateway; subscriptions; coupons/promotions engine, certificates, assessments/question banks (separate module later).
 
 ## R3 — Video upload, processing and playback
 - **Objective:** direct-to-S3 multipart upload, durable pipeline, MediaConvert HLS, CloudFront signed-cookie playback, resume.
@@ -93,7 +93,7 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 ## R4 — Live classes
 - **Objective:** schedule, broadcast, join, chat, attendance, recordings into the VOD pipeline.
 - **Dependencies:** R3 (pipeline, asset model); IVS + IVS Chat enabled; playback key pair.
-- **DB:** V10 live.
+- **DB:** V9 live.
 - **API:** 08 §8.
 - **Infra:** IVS channels (pool per cohort), recording configuration → source bucket, EventBridge rules for IVS events → SQS, playback key in Secrets Manager.
 - **Tasks:** `LiveStreamingProvider` port + mock + IVS adapter; scheduling with overlap constraint; provisioning job T-30; ingest credentials; join tokens; chat tokens & moderation; heartbeats & attendance finalisation; recording registration + adopt path; publishing recording to lesson; notifications (reminders).
@@ -109,7 +109,7 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 ## R5 — AI learning features
 - **Objective:** transcripts, captions, summaries, chapters, searchable transcripts, quiz/flashcard drafts with review; Q&A after evaluation.
 - **Dependencies:** R3 (`AssetReady`), STT benchmark done (Q-15), LLM provider agreement.
-- **DB:** V11 ai (+ `ai_qa_log` in 5b).
+- **DB:** V10 ai (+ `ai_qa_log` in 5b).
 - **API:** 08 §6 (transcript/artifacts), §7.
 - **Tasks:** `SpeechToText`, `LlmClient` ports + mocks; AI_* jobs with idempotency keys; JSON-schema validation & repair; review UI endpoints; VTT generation + master playlist update; FTS search; cost recording + budgets; **5b:** Q&A with allowed-asset retrieval, citations validation, feedback, evaluation harness.
 - **Testing:** golden-file tests for VTT/chapters; schema-validation tests; failure isolation test (STT down → video plays, AI job DEAD, alert); Q&A eval set (≥ 100 questions per pilot course) measuring grounded rate and Recall@8; tenant test: Q&A never cites an asset of another org.
@@ -123,7 +123,7 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 
 ## R6 — Scale, cost and operational hardening
 - **Objective:** confidence at 5k B2B + 5k B2C with predictable cost.
-- **Tasks:** dashboards & alerts (09 §8); cost attribution job (11 §8); autoscaling policies; S3 lifecycle verification; CDN cache-hit tuning; load tests (playback session creation 200 rps, heartbeats 300 rps, live join burst 500 in 60 s, checkout 20 rps); tenant-isolation suite expanded to all endpoints; DR drill (RDS PITR restore, SQS redrive, worker crash); security review + external pentest; virtual-thread vs platform-thread experiment (09 §7); evaluate RLS (ADR-002) and Kafka trigger (ADR-008).
+- **Tasks:** dashboards & alerts (09 §8); cost attribution job (11 §8); autoscaling policies; S3 lifecycle verification; CDN cache-hit tuning; load tests (playback session creation 200 rps, heartbeats 300 rps, live join burst 500 in 60 s, staff bulk grant of 2,000 rows); tenant-isolation suite expanded to all endpoints; DR drill (RDS PITR restore, SQS redrive, worker crash); security review + external pentest; virtual-thread vs platform-thread experiment (09 §7); evaluate RLS (ADR-002) and Kafka trigger (ADR-008).
 - **Acceptance criteria:** SLOs met under load (API p95 < 300 ms for non-provider calls; playback session p95 < 200 ms); restore drill RPO ≤ 5 min / RTO ≤ 1 h; zero high/critical pentest findings open; monthly cost within ±20% of the 11 model for observed usage.
 - **Out of scope:** multi-region, microservice extraction.
 

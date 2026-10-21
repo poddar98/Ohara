@@ -44,7 +44,7 @@ stateDiagram-v2
 
 | State | Can log in | Can access content | Notes |
 |---|---|---|---|
-| PENDING_VERIFICATION | Yes (limited token, `scope=unverified`) | Free previews only; **no purchase, no B2B content** | Avoids squatting someone else's email |
+| PENDING_VERIFICATION | Yes (limited token, `scope=unverified`) | Free previews only; **no granted or B2B content** until verified | Avoids squatting someone else's email |
 | ACTIVE | Yes | Per grants | |
 | SUSPENDED | No | No | All refresh tokens revoked; access tokens die within TTL (≤ 15 min after change, see §4) |
 | DEACTIVATED | Login → reactivation flow only | No | Memberships/enrollments untouched; grants keep ticking (an expired window stays expired) |
@@ -138,7 +138,7 @@ Bulk import pipeline (async, `BULK_IMPORT` job):
 Same as 3.5 "account exists": the invitation links the existing `users` row. No new account, no duplicate progress. Their B2C enrollments are unaffected.
 
 ### 3.8 College learner buys a B2C course
-Standard B2C checkout (05 §5) with the same user. If they already have B2B access to the same course, checkout returns 409 `already_has_access` with the existing grant's `valid_until` (purchasing could still be allowed to extend access beyond the college window — configurable, Q-14). Reports separate B2B vs B2C by offering channel.
+They pay the contract team offline; the contract team grants the B2C offering to the **same email** (05 §5), so the existing account gets a second enrollment — no new user. If they already have active B2B access to the same course, the grant returns 409 `already_has_access` unless the B2B window ends within 30 days (extension case, Q-14). Reports separate B2B vs B2C by offering channel.
 
 ### 3.9 Deactivation / reactivation
 - `POST /api/users/me/deactivate {password}` → `DEACTIVATED`, revoke all refresh tokens, bump `auth_version`.
@@ -148,9 +148,9 @@ Standard B2C checkout (05 §5) with the same user. If they already have B2B acce
 ### 3.10 Deletion / anonymization
 `POST /api/users/me/deletion-request` → `DEACTIVATED` + scheduled `ACCOUNT_ANONYMIZE` job at +30 days (cancel by reactivating). Anonymization:
 - Scrub: email → `deleted+{id}@invalid`, `user_profile` names → "Deleted user", phone/avatar null, revoke tokens, delete credentials and `one_time_token`s, withdraw consents, delete pending invitations to that email.
-- Keep: `users` row (status ANONYMIZED), orders/payments (legal retention), enrollments/progress/attendance (aggregate reporting; tied to the anonymised id), audit events (with actor id only).
+- Keep: `users` row (status ANONYMIZED), access grants with their contract/bank references (finance reconciliation), enrollments/progress/attendance (aggregate reporting; tied to the anonymised id), audit events (with actor id only).
 - AI Q&A logs (if stored) and bulk-import rows containing the email are deleted.
-- **Legal hold:** if an unresolved payment dispute exists, deletion is deferred and the user informed.
+- **Legal hold:** if the contract team flags an unresolved payment/refund dispute, deletion is deferred and the user informed.
 
 ### 3.11 Email change
 `POST /api/users/me/email {newEmail, password}` → if `newEmail` belongs to another account → 202 (generic) and notify that account; else `one_time_token(EMAIL_CHANGE, target_email)` to the new address + notice to the old one. On confirm: update `users.email` and `auth_identity.identifier` atomically, bump `auth_version`. Because JWT `sub` becomes the UUID (V3 change), nothing else breaks.
@@ -176,7 +176,10 @@ Not self-service. Platform support tool: choose survivor & duplicate (both verif
 | Schedule / host live sessions | | ✔ | ✔ own offerings | |
 | View org reports (enrollment, progress, attendance) | ✔ | ✔ own org | ✔ own cohorts/courses | own only |
 | Approve AI artifacts | ✔ | ✔ | ✔ own courses | |
-| Learn, purchase, view own progress | ✔ | ✔ | ✔ | ✔ |
+| Grant/revoke B2C access after offline payment | ✔ | | | |
+| Learn, view own progress | ✔ | ✔ | ✔ | ✔ |
+
+The contract team uses the platform role `ROLE_ENROLLMENT_MANAGER` (grant/extend/revoke B2C access, reconciliation report — nothing else).
 
 ## 6. API surface (details in 08 §2–3)
 

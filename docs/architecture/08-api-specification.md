@@ -27,7 +27,7 @@ Cursor pagination: `?limit=50&cursor=<opaque>`; response `{ "items": [...], "nex
 Mutable admin resources return `ETag` (`version` column); updates require `If-Match` → 412 on mismatch.
 
 ### 1.5 Idempotency
-`Idempotency-Key` header (UUID) **required** on: checkout, asset/upload initiation, bulk import submit, refund, offering open, invitation create (bulk). Stored in `idempotency_key` (24 h): same key + same body hash → replay stored response; same key + different body → 422 `idempotency_key_reused`.
+`Idempotency-Key` header (UUID) **required** on: staff access grants/extensions/revocations, asset/upload initiation, bulk import submit, offering open, invitation create (bulk). Stored in `idempotency_key` (24 h): same key + same body hash → replay stored response; same key + different body → 422 `idempotency_key_reused`.
 
 ### 1.6 Rate limits (per IP + per user; 429 with `Retry-After`)
 | Group | Limit |
@@ -126,14 +126,14 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 | `PATCH/DELETE …/lessons/{lessonId}/contents/{contentId}` | Edit/detach | staff, DRAFT | | asset untouched |
 | `POST /api/courses/{courseId}/instructors` / `DELETE …/{userId}` | Manage instructors | OWNER/org admin | `{userId, role}` | user must be INSTRUCTOR member of owner org (A) |
 
-## 5. Enrollment, entitlements, progress, commerce
+## 5. Enrollment, entitlements, progress, staff access grants
 
 | Method & path | Purpose | Authz | Request / Response | Errors / idempotency |
 |---|---|---|---|---|
 | `POST /api/orgs/{orgId}/offerings` | Create B2B offering | ORG_ADMIN; course licensed/owned | `{courseId, cohortId?, startsAt, endsAt, versionPolicy, pinnedVersionId?, seatLimit?}` → 201 | 409 duplicate cohort offering (A) |
 | `GET /api/orgs/{orgId}/offerings` / `PATCH …/{id}` | Manage | ORG_ADMIN | window changes propagate to grants | ETag (A) |
 | `POST /api/offerings/{id}/open` / `close` | Open/close | ORG_ADMIN or platform admin (B2C) | 202 (enrollment fan-out async) | Idempotency-Key (A) |
-| `POST /api/admin/offerings` | Create B2C offering | platform admin | `{courseId, priceMinor, currency, accessDurationDays?}` | (A) |
+| `POST /api/admin/offerings` | Create B2C offering | platform admin | `{courseId, listPriceMinor?, currency?, accessDurationDays?}` (price is display-only) | (A) |
 | `GET /api/enrollments/{id}` | Enrollment detail | owner, org admin of org, platform admin | `{status, courseVersionId, grants[{source, validFrom, validUntil, revoked}], progressPercent}` | |
 | `POST /api/orgs/{orgId}/enrollments/{id}/revoke` | Revoke B2B access | ORG_ADMIN | `{reason}` | revokes grants (A) |
 | `POST /api/admin/enrollments/{id}/grants` | Admin grant/extend | platform admin, ORG_ADMIN for own offerings | `{validUntil, reason}` → 201 grant | (A) |
@@ -141,12 +141,11 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 | `PUT /api/enrollments/{id}/lessons/{lessonKey}/progress` | Heartbeat / position | owner, active grant | `{positionMs, durationMs, watchedDeltaMs, clientTs}` → 204 | last-write-wins by `clientTs`; rate-limited |
 | `POST /api/enrollments/{id}/lessons/{lessonKey}/complete` | Mark reading done | owner | 204 | idempotent |
 | `GET /api/enrollments/{id}/progress` | Progress summary | owner/staff | per lesson | |
-| `POST /api/checkout` | Start B2C purchase | ACTIVE + verified | `{offeringId}` + **Idempotency-Key** → 201 `{orderId, gateway, gatewayOrderId, amountMinor, currency, gatewayKeyId}` | 409 `already_has_access` / existing pending order; 422 offering closed |
-| `POST /api/checkout/{orderId}/confirm` | Client-side confirmation | order owner | `{gatewayPaymentId, signature}` → 200 `{status}` | verifies server-side; never grants on signature alone |
-| `GET /api/checkout/{orderId}` | Poll order | owner | `{status, enrollmentId?}` | |
-| `POST /api/webhooks/payments/{gateway}` | Gateway webhook | public, **signature-verified** | raw body | 200 fast after persisting; 401 bad signature (logged); dedup by event id |
-| `GET /api/me/orders` | Order history | auth | page | |
-| `POST /api/admin/orders/{id}/refunds` | Refund | platform admin | `{amountMinor?, reason}` + Idempotency-Key | (A) |
+| `POST /api/admin/offerings/{offeringId}/grants` | Grant B2C access after offline payment | `ROLE_ENROLLMENT_MANAGER` or platform admin | **Idempotency-Key**; `{email, firstName, lastName, externalReference (required), validUntil?, note?}` → 201 `{enrollmentId, grantId, userCreated, referenceAlreadyUsed[]}` | 409 `already_has_access`; 422 offering not B2C/OPEN; creates account + set-password email if none (A) |
+| `POST /api/admin/grants/{grantId}/extend` | Extend after offline renewal | same | `{validUntil, externalReference}` → 201 new grant | Idempotency-Key (A) |
+| `POST /api/admin/grants/{grantId}/revoke` | Revoke (refund done offline, contract ended, mistake) | same; ORG_ADMIN for own B2B offerings | `{reason: REFUNDED_OFFLINE\|CONTRACT_ENDED\|ADMIN, externalReference?, note?}` → 200 | idempotent (A) |
+| `GET /api/admin/access-grants` | Reconciliation report | same + finance read | `?source=CONTRACT&offeringId&from&to&format=json\|csv` → grants with reference, staff, window, revocation | export for finance |
+| `POST /api/admin/imports` | Bulk grant (mode `GRANT_ACCESS`) | same | `{offeringId, fileName, bytes, sha256}` → presigned upload; then submit/confirm as in §3 | CSV columns: email, firstName, lastName, externalReference, validUntil? |
 
 ## 6. Assets, uploads, playback
 

@@ -30,10 +30,10 @@ Format: Context · Options · Decision · Rationale · Consequences. Status **Pr
 - **Consequences:** Publishing copies rows (cheap — hundreds per course); progress maps by `lesson_key`; explicit migration for learners to newer versions.
 
 ## ADR-005 Separate enrollment, access grant and payment
-- **Context:** B2B cohort assignment, B2C purchase, admin grants, future subscriptions, refunds, expiries.
-- **Decision:** `enrollment` (relationship) + `access_grant` (why/when access is allowed, with source and window) + `purchase_order`/`payment_transaction` (money). Grants have unique `(source, source_ref_id)`.
-- **Rationale:** Each concept has a different lifecycle; idempotent grant creation from payments and memberships.
-- **Consequences:** `ContentAccessService` is the single gatekeeper; grants double as access history.
+- **Context:** B2B cohort assignment, B2C access after offline payment, admin grants, refunds (offline), expiries.
+- **Decision:** `enrollment` (relationship) + `access_grant` (why/when access is allowed, with source, window and — for paid access — the offline contract/bank reference). Grants have unique `(source, source_ref_id)`. Money is not modeled in Ohara (ADR-012).
+- **Rationale:** Relationship and permission have different lifecycles; grants can be created idempotently from cohort memberships, bulk imports and staff actions.
+- **Consequences:** `ContentAccessService` is the single gatekeeper; grants double as access history and as the reconciliation record for finance.
 
 ## ADR-006 Private S3 + CloudFront signed cookies for VOD
 - **Context:** Paid content; HLS requests hundreds of segments.
@@ -71,10 +71,12 @@ Format: Context · Options · Decision · Rationale · Consequences. Status **Pr
 - **Decision:** `sub`=userId, plus `email`, `ver` (auth_version), `scope`; platform roles only in token; org roles looked up per request (cached 60 s); access TTL 15 min.
 - **Consequences:** One forced re-login at rollout; email change and role changes no longer invalidate identity mapping; revocation lag ≈ 1 min.
 
-## ADR-012 Payment gateways behind a port; access only from verified captures
-- **Context:** Razorpay and Cashfree planned (`initial_prompt.md`).
-- **Decision:** `PaymentGateway` port (mock, Razorpay, Cashfree); webhooks signature-verified and persisted before processing; confirm endpoint verifies with the gateway API; grants created only by the idempotent capture handler; reconciliation job.
-- **Consequences:** No access from client-side success; duplicate/out-of-order events are harmless; adding a gateway is an adapter, not a model change.
+## ADR-012 No online payments; staff-granted access with offline references
+- **Context:** `initial_prompt.md` planned Razorpay/Cashfree. The business has confirmed (2026-10-21) that all payments and refunds — B2B and B2C — are done by the contract team by bank transfer.
+- **Options:** (a) integrate gateways anyway; (b) no payment integration, staff grants access with a reference; (c) record full offline payment ledger in Ohara.
+- **Decision:** (b). No cart, order, payment, webhook or subscription tables; no gateway credentials. `ROLE_ENROLLMENT_MANAGER` grants/extends/revokes B2C access with a mandatory `external_reference` (contract no. / bank UTR); bulk grants via `bulk_import_job(mode=GRANT_ACCESS)`; refunds become revocations (`REFUNDED_OFFLINE`); a reconciliation export serves finance. Finance remains the system of record for money.
+- **Rationale:** Removes the riskiest integration (webhooks, idempotent capture, refunds) and a whole module; matches how the business actually collects money.
+- **Consequences:** Access correctness now depends on staff actions → dedicated least-privilege role, MFA, Idempotency-Key, audit of every grant, volume alerts. Self-serve instant B2C purchase isn't possible; if it's needed later, a commerce module can emit grants with a new `source` without changing the access model.
 
 ## ADR-013 RFC 9457 problem details and typed exceptions
 - **Context:** `ApiExceptionHandler` maps every `IllegalArgumentException` to 400.
@@ -84,4 +86,4 @@ Format: Context · Options · Decision · Rationale · Consequences. Status **Pr
 ## ADR-014 Redis only for demonstrated needs
 - **Context:** Redis is a dependency but unused.
 - **Decision:** Don't put Redis on any critical path. First justified uses: shared rate-limit counters with ≥ 2 API nodes; optional short-TTL access-decision cache if profiling shows need. Otherwise remove the dependency.
-- **Consequences:** Fewer moving parts; progress heartbeats and carts stay in Postgres (volumes are small).
+- **Consequences:** Fewer moving parts; progress heartbeats stay in Postgres (volumes are small); no cart exists since payments are offline.
