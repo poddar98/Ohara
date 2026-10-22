@@ -30,6 +30,8 @@ Mutable admin resources return `ETag` (`version` column); updates require `If-Ma
 `Idempotency-Key` header (UUID) **required** on: staff access grants/extensions/revocations, asset/upload initiation, bulk import submit, offering open, invitation create (bulk). Stored in `idempotency_key` (24 h): same key + same body hash → replay stored response; same key + different body → 422 `idempotency_key_reused`.
 
 ### 1.6 Rate limits (per IP + per user; 429 with `Retry-After`)
+
+*As built (2026-10-22, `common.ratelimit.RateLimitFilter`, in-memory token buckets per client IP, `ohara.rate-limit.enabled`): login 10/min, register 5/min, forgot-password + verify-email/resend 5/min, verify-email + reset-password 10/min, refresh 30/min, `/api/invitations/**` 20/min. Per-email cooldowns (60 s) and the login lockout are separate. Per-user limits (playback, heartbeats, AI) come with those features.*
 | Group | Limit |
 |---|---|
 | login, register, forgot-password, verify resend | 5/min/IP, 10/hour/email |
@@ -66,7 +68,7 @@ Endpoints marked **(A)** write `audit_event`.
 | `POST /api/users/me/deactivate` | Deactivate | auth | `{password}` | 204 | 401 | (A) |
 | `POST /api/users/me/deletion-request` | Request deletion | auth | `{password}` | 202 `{scheduledFor}` | 409 legal hold | (A) |
 | `GET /api/users/me/organizations` | My affiliations | auth | — | `[{organizationId, name, roles[], status, cohorts[{id, name, status}]}]` | — | |
-| `GET /api/users/me/consents` / `POST` | View/change consents | auth | `{type, granted}` | list | — | append-only |
+| `GET /api/users/me/consents` / `PUT` | View/change consents | auth | `{acceptTerms?: true, marketingEmails?: bool}` | `[{type, granted, version, current}]` | 400 `terms_withdrawal_not_supported` | append-only; built 2026-10-22 |
 
 ## 3. Organizations, members, cohorts, invitations, imports
 

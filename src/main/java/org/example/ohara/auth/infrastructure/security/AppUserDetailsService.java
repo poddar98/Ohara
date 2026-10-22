@@ -30,8 +30,10 @@ public class AppUserDetailsService implements UserDetailsService {
         this.passwordCredentialRepository = passwordCredentialRepository;
     }
 
+    // noRollbackFor: this runs inside AuthService.login's transaction, which commits on failed logins (to count them);
+    // an unknown username must not mark that shared transaction rollback-only.
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, noRollbackFor = UsernameNotFoundException.class)
     public UserDetails loadUserByUsername(String username) {
         String email = username.toLowerCase(Locale.ROOT);
         User user = userService.findByEmail(email)

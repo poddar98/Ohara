@@ -105,6 +105,9 @@ Add `family_id UUID NOT NULL` (all rotations of one login share it; reuse revoke
 - **Retention:** delete 7 days after expiry.
 
 ### 2.7 `user_consent` (new, minimal)
+
+> **As built (V7, 2026-10-22):** `id, user_id, consent_type ∈ {TERMS, PRIVACY, MARKETING_EMAIL}, version, granted, source ∈ {SIGNUP, INVITATION, SETTINGS}, recorded_at`; append-only; current state = latest row per type. `AI_PROCESSING` is added when the AI phase needs it.
+
 `id`, `user_id FK`, `consent_type VARCHAR(32) CHECK IN ('TERMS','PRIVACY','MARKETING_EMAIL','AI_PROCESSING')`, `version VARCHAR(16) NOT NULL`, `granted_at TIMESTAMPTZ NOT NULL`, `withdrawn_at TIMESTAMPTZ NULL`, `source VARCHAR(32)` (`SIGNUP`, `INVITE`, `SETTINGS`). Index `(user_id, consent_type)`. Append-only (new row per change) — legal evidence (DPDP Act, see 13).
 
 ---
@@ -362,6 +365,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V3_1__account_lifecycle ✅ (2026-10-21) | `email_verified_at` (existing ACTIVE users backfilled), status default `PENDING_VERIFICATION`, `one_time_token` (EMAIL_VERIFICATION, PASSWORD_RESET), `password_credential.failed_attempts/locked_until` | Applied to dev + test DBs. `user_consent` and `refresh_token.family_id` deferred until consents / per-device sessions are built. |
 | V5__organization ✅ (2026-10-21) | organization, organization_membership (+ `_role`), cohort, cohort_membership (composite FK keeps placements inside the cohort's org) | Applied. |
 | V6__invitation_and_bulk_import ✅ (2026-10-21) | invitation, bulk_import_job, bulk_import_row | Applied. |
+| V7__user_consent ✅ (2026-10-22) | user_consent | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

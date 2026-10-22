@@ -28,6 +28,8 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Out of scope:** code changes.
 
 ## R1 — Identity and institutional foundation
+
+**Status (2026-10-22): complete** on branch `r1-identity-foundation` — slices 1–6 (error model + identity hardening, verification/reset/lockout, durable jobs + email outbox, organizations/cohorts, invitations + bulk import, rate limiting + consents). Deferred: audit_event, ETag/If-Match, account deactivation/deletion flows, college SSO.
 - **Objective:** one identity per human, verified email, org/cohort model, org-scoped authorization, invitations, bulk import.
 - **Dependencies:** R0; email provider choice (Q-06) — mock until then.
 - **DB:** V3 identity hardening, V4 organization, V8 platform (`processing_job`, `idempotency_key`, `audit_event`, Modulith `event_publication`).

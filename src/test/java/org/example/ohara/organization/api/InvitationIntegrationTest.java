@@ -102,7 +102,7 @@ class InvitationIntegrationTest {
             .andExpect(jsonPath("$.role").value("LEARNER"))
             .andExpect(jsonPath("$.cohortName").value("Batch B1"));
 
-        MvcResult accepted = acceptAnonymously(token, "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"password\":\"secret1234\"}")
+        MvcResult accepted = acceptAnonymously(token, "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"password\":\"secret1234\",\"acceptTerms\":true}")
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.organizationId").value(org.id().toString()))
             .andExpect(jsonPath("$.roles[0]").value("LEARNER"))
@@ -120,7 +120,7 @@ class InvitationIntegrationTest {
             .andExpect(jsonPath("$[0].cohorts[0].id").value(cohortId.toString()));
 
         // A used link can't be used again.
-        acceptAnonymously(token, "{\"firstName\":\"X\",\"lastName\":\"Y\",\"password\":\"secret1234\"}")
+        acceptAnonymously(token, "{\"firstName\":\"X\",\"lastName\":\"Y\",\"password\":\"secret1234\",\"acceptTerms\":true}")
             .andExpect(status().isGone()).andExpect(jsonPath("$.code").value("invitation_already_used"));
     }
 
@@ -131,10 +131,20 @@ class InvitationIntegrationTest {
         invite(org, email, "LEARNER", null).andExpect(status().isCreated());
         String token = invitationToken(email);
 
-        acceptAnonymously(token, "{\"firstName\":\"Asha\",\"lastName\":\"Rao\"}")
+        acceptAnonymously(token, "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"acceptTerms\":true}")
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("missing_password"));
-        acceptAnonymously(token, "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"password\":\"short\"}")
+        acceptAnonymously(token, "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"password\":\"short\",\"acceptTerms\":true}")
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("validation_failed"));
+    }
+
+    @Test
+    void signingUpThroughAnInvitationRequiresAcceptingTheTerms() throws Exception {
+        Org org = fx.orgWithAdmin();
+        String email = newEmail();
+        invite(org, email, "LEARNER", null).andExpect(status().isCreated());
+
+        acceptAnonymously(invitationToken(email), "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"password\":\"secret1234\"}")
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("terms_not_accepted"));
     }
 
     // --- existing accounts ---------------------------------------------------------------------------
@@ -148,7 +158,7 @@ class InvitationIntegrationTest {
         String token = invitationToken(existing.email());
 
         mockMvc.perform(get("/api/invitations/{token}", token)).andExpect(jsonPath("$.accountExists").value(true));
-        acceptAnonymously(token, "{\"firstName\":\"A\",\"lastName\":\"B\",\"password\":\"secret1234\"}")
+        acceptAnonymously(token, "{\"firstName\":\"A\",\"lastName\":\"B\",\"password\":\"secret1234\",\"acceptTerms\":true}")
             .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("account_exists"));
         acceptAs(token, someoneElse)
             .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("invitation_email_mismatch"));
@@ -190,7 +200,7 @@ class InvitationIntegrationTest {
         Org org = fx.orgWithAdmin();
         String email = newEmail();
         mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"firstName\":\"P\",\"lastName\":\"Q\",\"email\":\"%s\",\"password\":\"secret1234\"}".formatted(email)))
+                .content("{\"firstName\":\"P\",\"lastName\":\"Q\",\"email\":\"%s\",\"password\":\"secret1234\",\"acceptTerms\":true}".formatted(email)))
             .andExpect(status().isAccepted());
         String limited = JsonPath.read(mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"%s\",\"password\":\"secret1234\"}".formatted(email)))

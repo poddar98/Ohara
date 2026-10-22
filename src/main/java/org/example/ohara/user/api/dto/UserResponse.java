@@ -10,6 +10,7 @@ public record UserResponse(
     String lastName,
     String status,
     boolean emailVerified,
+    boolean termsAccepted,
     List<String> roles
 ) {
 }

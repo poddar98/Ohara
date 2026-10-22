@@ -26,7 +26,7 @@ import java.util.Map;
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
-    static final String TYPE_BASE = "https://errors.ohara.example/";
+    public static final String TYPE_BASE = "https://errors.ohara.example/";
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ProblemDetail> handleApi(ApiException ex, HttpServletRequest request) {

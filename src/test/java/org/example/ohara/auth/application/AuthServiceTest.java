@@ -9,6 +9,7 @@ import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
 import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.user.application.ConsentService;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.example.ohara.user.domain.UserRole;
@@ -44,6 +45,7 @@ class AuthServiceTest {
     private JwtTokenProvider jwtTokenProvider;
     private AccountRecoveryService accountRecoveryService;
     private AuthEmails emails;
+    private ConsentService consentService;
     private AuthService authService;
 
     @BeforeEach
@@ -55,6 +57,7 @@ class AuthServiceTest {
         authenticationManager = mock(AuthenticationManager.class);
         accountRecoveryService = mock(AccountRecoveryService.class);
         emails = mock(AuthEmails.class);
+        consentService = mock(ConsentService.class);
         jwtTokenProvider = new JwtTokenProvider();
         ReflectionTestUtils.setField(jwtTokenProvider, "secret", "ohara-local-jwt-secret-key-should-be-at-least-32-chars");
         ReflectionTestUtils.setField(jwtTokenProvider, "accessTokenValidityMs", 900000L);
@@ -70,7 +73,8 @@ class AuthServiceTest {
             jwtTokenProvider,
             new TokenIssuer(jwtTokenProvider, refreshTokenRepository),
             accountRecoveryService,
-            emails
+            emails,
+            consentService
         );
     }
 
@@ -94,10 +98,11 @@ class AuthServiceTest {
         when(userService.findByEmail("user@example.com")).thenReturn(Optional.empty());
         when(accountProvisioning.createPendingAccount("user@example.com", "Ada", "Lovelace", "secret1234")).thenReturn(created);
 
-        authService.register(new RegisterRequest("Ada", "Lovelace", " User@Example.com ", "secret1234"));
+        authService.register(new RegisterRequest("Ada", "Lovelace", " User@Example.com ", "secret1234", true, null));
 
         verify(accountProvisioning).createPendingAccount("user@example.com", "Ada", "Lovelace", "secret1234");
         verify(accountRecoveryService).sendVerification(eq(created), any(Instant.class));
+        verify(consentService).recordSignUp(created.getId(), false, org.example.ohara.user.domain.UserConsent.Source.SIGNUP);
         verifyNoInteractions(refreshTokenRepository);
     }
 
@@ -105,7 +110,7 @@ class AuthServiceTest {
     void registeringAVerifiedEmailSendsANoticeAndCreatesNothing() {
         when(userService.findByEmail("ada@example.com")).thenReturn(Optional.of(existingUser(UserStatus.ACTIVE)));
 
-        authService.register(new RegisterRequest("Ada", "Lovelace", "ada@example.com", "secret1234"));
+        authService.register(new RegisterRequest("Ada", "Lovelace", "ada@example.com", "secret1234", true, null));
 
         verify(emails).accountAlreadyExists("ada@example.com");
         verifyNoInteractions(accountProvisioning);
@@ -115,7 +120,7 @@ class AuthServiceTest {
     void registeringAnUnverifiedEmailResendsVerification() {
         when(userService.findByEmail("ada@example.com")).thenReturn(Optional.of(existingUser(UserStatus.PENDING_VERIFICATION)));
 
-        authService.register(new RegisterRequest("Ada", "Lovelace", "ada@example.com", "secret1234"));
+        authService.register(new RegisterRequest("Ada", "Lovelace", "ada@example.com", "secret1234", true, null));
 
         verify(accountRecoveryService).resendVerification("ada@example.com");
         verifyNoInteractions(accountProvisioning);

@@ -18,8 +18,10 @@ import org.example.ohara.organization.domain.OrganizationMembership;
 import org.example.ohara.organization.infrastructure.persistence.CohortRepository;
 import org.example.ohara.organization.infrastructure.persistence.InvitationRepository;
 import org.example.ohara.organization.infrastructure.persistence.OrganizationRepository;
+import org.example.ohara.user.application.ConsentService;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
+import org.example.ohara.user.domain.UserConsent;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,10 +49,11 @@ public class InvitationService {
     private final InvitationEmails emails;
     private final AccountProvisioning accounts;
     private final UserService userService;
+    private final ConsentService consentService;
 
     public InvitationService(InvitationRepository invitations, OrganizationRepository organizations, CohortRepository cohorts,
                              OrgAuthorizationService authorization, MembershipGrants grants, InvitationEmails emails,
-                             AccountProvisioning accounts, UserService userService) {
+                             AccountProvisioning accounts, UserService userService, ConsentService consentService) {
         this.invitations = invitations;
         this.organizations = organizations;
         this.cohorts = cohorts;
@@ -59,6 +62,7 @@ public class InvitationService {
         this.emails = emails;
         this.accounts = accounts;
         this.userService = userService;
+        this.consentService = consentService;
     }
 
     public record InviteResult(InvitationResponse invitation, boolean created) {
@@ -213,10 +217,14 @@ public class InvitationService {
             if (accounts.findAccount(invitation.getEmail()).isPresent()) {
                 throw new ApiException.Conflict("account_exists", "An account exists for this email; sign in to accept");
             }
+            if (request == null || !Boolean.TRUE.equals(request.acceptTerms())) {
+                throw new ApiException.BadRequest("terms_not_accepted", "You must accept the terms of use and privacy notice");
+            }
             user = accounts.createVerifiedAccount(invitation.getEmail(),
                 required(request == null ? null : request.firstName(), invitation.getFirstName(), "firstName"),
                 required(request == null ? null : request.lastName(), invitation.getLastName(), "lastName"),
                 required(request == null ? null : request.password(), null, "password"));
+            consentService.recordSignUp(user.getId(), Boolean.TRUE.equals(request.marketingEmails()), UserConsent.Source.INVITATION);
             session = accounts.startSession(user);
         }
 

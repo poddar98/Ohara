@@ -9,8 +9,10 @@ import org.example.ohara.auth.infrastructure.jwt.JwtTokenProvider;
 import org.example.ohara.auth.infrastructure.persistence.PasswordCredentialRepository;
 import org.example.ohara.auth.infrastructure.persistence.RefreshTokenRepository;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.user.application.ConsentService;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
+import org.example.ohara.user.domain.UserConsent;
 import org.example.ohara.user.domain.UserStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -35,6 +37,7 @@ public class AuthService {
     private final TokenIssuer tokenIssuer;
     private final AccountRecoveryService accountRecoveryService;
     private final AuthEmails emails;
+    private final ConsentService consentService;
 
     public AuthService(
             UserService userService,
@@ -45,7 +48,8 @@ public class AuthService {
             JwtTokenProvider jwtTokenProvider,
             TokenIssuer tokenIssuer,
             AccountRecoveryService accountRecoveryService,
-            AuthEmails emails) {
+            AuthEmails emails,
+            ConsentService consentService) {
         this.userService = userService;
         this.accountProvisioning = accountProvisioning;
         this.passwordCredentialRepository = passwordCredentialRepository;
@@ -55,6 +59,7 @@ public class AuthService {
         this.tokenIssuer = tokenIssuer;
         this.accountRecoveryService = accountRecoveryService;
         this.emails = emails;
+        this.consentService = consentService;
     }
 
     /**
@@ -75,6 +80,7 @@ public class AuthService {
         }
 
         User created = accountProvisioning.createPendingAccount(email, request.firstName(), request.lastName(), request.password());
+        consentService.recordSignUp(created.getId(), Boolean.TRUE.equals(request.marketingEmails()), UserConsent.Source.SIGNUP);
         accountRecoveryService.sendVerification(created, Instant.now());
     }
 

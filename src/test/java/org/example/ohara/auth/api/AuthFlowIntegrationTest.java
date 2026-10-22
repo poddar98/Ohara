@@ -22,6 +22,7 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -64,7 +65,7 @@ class AuthFlowIntegrationTest {
 
     private ResultActions register(String email) throws Exception {
         return postJson("/api/auth/register", """
-            {"firstName":"Ada","lastName":"Lovelace","email":"%s","password":"%s"}
+            {"firstName":"Ada","lastName":"Lovelace","email":"%s","password":"%s","acceptTerms":true}
             """.formatted(email, PASSWORD));
     }
 
@@ -302,6 +303,13 @@ class AuthFlowIntegrationTest {
     }
 
     @Test
+    void unknownEmailIsTheSameGenericUnauthorized() throws Exception {
+        login(newEmail(), PASSWORD)
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.code").value("invalid_credentials"));
+    }
+
+    @Test
     void fiveFailedLoginsLockTheAccountEvenForTheRightPassword() throws Exception {
         String email = newEmail();
         registeredAndVerified(email);
@@ -363,6 +371,38 @@ class AuthFlowIntegrationTest {
         postJson("/api/auth/forgot-password", "{\"email\":\"%s\"}".formatted(email)).andExpect(status().isAccepted());
 
         assertThat(delivered(email)).isEmpty();
+    }
+
+    // --- consent -------------------------------------------------------------------------------------
+
+    @Test
+    void registrationRequiresAcceptingTheTerms() throws Exception {
+        postJson("/api/auth/register", """
+            {"firstName":"Ada","lastName":"Lovelace","email":"%s","password":"%s"}
+            """.formatted(newEmail(), PASSWORD))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.errors[?(@.field == 'acceptTerms')]").exists());
+    }
+
+    @Test
+    void consentsAreRecordedAtSignUpAndCanBeChanged() throws Exception {
+        String accessToken = accessToken(registeredAndVerified(newEmail()));
+
+        me(accessToken).andExpect(jsonPath("$.termsAccepted").value(true));
+        mockMvc.perform(get("/api/users/me/consents").header("Authorization", "Bearer " + accessToken))
+            .andExpect(jsonPath("$[?(@.type == 'TERMS')].granted").value(true))
+            .andExpect(jsonPath("$[?(@.type == 'MARKETING_EMAIL')].granted").value(false));
+
+        mockMvc.perform(put("/api/users/me/consents")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"marketingEmails\":true}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.type == 'MARKETING_EMAIL')].granted").value(true));
+        mockMvc.perform(put("/api/users/me/consents")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"acceptTerms\":false}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("terms_withdrawal_not_supported"));
     }
 
     // --- errors --------------------------------------------------------------------------------------

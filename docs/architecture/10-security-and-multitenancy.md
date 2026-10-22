@@ -87,6 +87,8 @@ if (d.denied()) throw d.toException();             // 404 for cross-tenant, 403 
 
 ## 6. Rate limiting & abuse
 
+*Implemented 2026-10-22: per-IP token buckets on public auth and invitation endpoints (08 §1.6). Single-node in-memory; moves to Redis with ≥ 2 API nodes. Behind the ALB set `server.forward-headers-strategy=native` so limits key on the real client IP.*
+
 - Edge: CloudFront/ALB + AWS WAF rate-based rules on `/api/auth/*` (e.g. 100 req/5 min/IP).
 - App: Bucket4j-style token buckets keyed by IP and user (08 §1.6). Store in-process for a single API node; **Redis** becomes justified when ≥ 2 API nodes must share counters — this is the first concrete Redis use-case (and the existing dependency can serve it).
 - Account lockout on credential failures (04 §3.3); CAPTCHA after repeated failures (provider TBD).

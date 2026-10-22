@@ -15,9 +15,11 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final ConsentService consentService;
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, ConsentService consentService) {
         this.userRepository = userRepository;
+        this.consentService = consentService;
     }
 
     @Transactional(readOnly = true)
@@ -32,6 +34,7 @@ public class UserService {
             user.getLastName(),
             user.getStatus().name(),
             user.isEmailVerified(),
+            consentService.hasAcceptedCurrentTerms(user.getId()),
             user.getRoles().stream().map(UserRole::getName).toList()
         );
     }
