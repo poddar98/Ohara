@@ -15,6 +15,8 @@ import org.example.ohara.course.domain.Lesson;
 import org.example.ohara.course.domain.LessonContent;
 import org.example.ohara.course.infrastructure.persistence.CourseRepository;
 import org.example.ohara.course.infrastructure.persistence.CourseVersionRepository;
+import org.example.ohara.content.application.AssetQueries;
+import org.example.ohara.content.domain.ContentAsset;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +34,13 @@ public class CurriculumService {
     private final CourseRepository courses;
     private final CourseVersionRepository versions;
     private final CourseAccess access;
+    private final AssetQueries assets;
 
-    public CurriculumService(CourseRepository courses, CourseVersionRepository versions, CourseAccess access) {
+    public CurriculumService(CourseRepository courses, CourseVersionRepository versions, CourseAccess access, AssetQueries assets) {
         this.courses = courses;
         this.versions = versions;
         this.access = access;
+        this.assets = assets;
     }
 
     // --- versions ----------------------------------------------------------------------------------
@@ -212,6 +216,10 @@ public class CurriculumService {
                 }
                 lesson.addLink(trim(r.title()), r.externalUrl(), required);
             }
+            case VIDEO, DOCUMENT -> {
+                requireAttachable(course(courseId), r.kind(), r.contentAssetId());
+                lesson.addAsset(r.kind(), trim(r.title()), r.contentAssetId(), required);
+            }
         }
         return saved(draft);
     }
@@ -245,8 +253,36 @@ public class CurriculumService {
 
     // --- helpers -----------------------------------------------------------------------------------
 
-    static List<String> publishProblems(CourseVersion draft) {
+    /** The asset must exist, belong to the course's owner, match the content kind, and not be rejected/retired. */
+    private void requireAttachable(Course course, LessonContent.Kind kind, UUID assetId) {
+        if (assetId == null) {
+            throw new ApiException.BadRequest("content_incomplete", kind + " content needs a contentAssetId");
+        }
+        AssetQueries.AssetFacts asset = assets.asset(assetId)
+            .filter(a -> java.util.Objects.equals(a.ownerOrganizationId(), course.getOwnerOrganizationId()))
+            .orElseThrow(() -> new ApiException.NotFound("asset_not_found", "Asset not found in this course's library"));
+        ContentAsset.Type expected = kind == LessonContent.Kind.VIDEO ? ContentAsset.Type.VIDEO : ContentAsset.Type.DOCUMENT;
+        if (asset.type() != expected) {
+            throw new ApiException.Unprocessable("asset_type_mismatch", kind + " content needs a " + expected + " asset");
+        }
+        if (!ContentAsset.ATTACHABLE.contains(asset.status())) {
+            throw new ApiException.Unprocessable("asset_unusable", "The asset is " + asset.status().name().toLowerCase());
+        }
+    }
+
+    List<String> publishProblems(CourseVersion draft) {
         List<String> problems = new ArrayList<>();
+        List<UUID> assetIds = draft.getModules().stream().flatMap(m -> m.getLessons().stream())
+            .flatMap(l -> l.getContents().stream()).map(LessonContent::getContentAssetId)
+            .filter(java.util.Objects::nonNull).distinct().toList();
+        var assetFacts = assetIds.isEmpty() ? java.util.Map.<UUID, AssetQueries.AssetFacts>of() : assets.assets(assetIds);
+        for (UUID assetId : assetIds) {
+            AssetQueries.AssetFacts asset = assetFacts.get(assetId);
+            if (asset == null || asset.status() != ContentAsset.Status.READY) {
+                problems.add("Asset '" + (asset == null ? assetId : asset.title()) + "' isn't ready ("
+                    + (asset == null ? "missing" : asset.status().name().toLowerCase()) + ")");
+            }
+        }
         if (draft.getDescription() == null || draft.getDescription().isBlank()) {
             problems.add("The course needs a description");
         }

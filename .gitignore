@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Local object storage (development stand-in for S3)
+var/

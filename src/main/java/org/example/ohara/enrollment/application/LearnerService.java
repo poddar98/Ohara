@@ -4,6 +4,8 @@ import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.course.api.dto.VersionTree;
 import org.example.ohara.course.application.CourseQueries;
+import org.example.ohara.content.application.AssetQueries;
+import org.example.ohara.content.domain.ContentAsset;
 import org.example.ohara.enrollment.api.dto.LearnerCurriculum;
 import org.example.ohara.enrollment.api.dto.LessonView;
 import org.example.ohara.enrollment.api.dto.MyCourseResponse;
@@ -31,14 +33,16 @@ public class LearnerService {
     private final CourseQueries courses;
     private final ContentAccessService access;
     private final LessonProgressRepository progress;
+    private final AssetQueries assets;
 
     public LearnerService(EnrollmentRepository enrollments, CourseOfferingRepository offerings, CourseQueries courses,
-                          ContentAccessService access, LessonProgressRepository progress) {
+                          ContentAccessService access, LessonProgressRepository progress, AssetQueries assets) {
         this.enrollments = enrollments;
         this.offerings = offerings;
         this.courses = courses;
         this.access = access;
         this.progress = progress;
+        this.assets = assets;
     }
 
     @Transactional(readOnly = true)
@@ -97,7 +101,20 @@ public class LearnerService {
             : progress.findByEnrollmentId(decision.enrollmentId()).stream()
                 .filter(p -> p.getLessonKey().equals(node.lessonKey()))
                 .map(LessonProgress::getVideoPositionMs).filter(java.util.Objects::nonNull).findFirst().orElse(null);
-        return new LessonView(node.id(), node.lessonKey(), node.title(), node.type().name(), decision.enrollmentId(), resume,
-            node.contents());
+        var assetIds = node.contents().stream().map(VersionTree.ContentNode::contentAssetId).filter(java.util.Objects::nonNull).toList();
+        Map<UUID, AssetQueries.AssetFacts> assetFacts = assetIds.isEmpty() ? Map.of() : assets.assets(assetIds);
+        List<LessonView.ContentItem> items = node.contents().stream().map(c -> {
+            if (c.contentAssetId() == null) {
+                return new LessonView.ContentItem(c.id(), c.kind().name(), c.title(), c.body(), c.externalUrl(), null, true,
+                    null, c.position(), c.required());
+            }
+            AssetQueries.AssetFacts asset = assetFacts.get(c.contentAssetId());
+            boolean available = asset != null && asset.status() == ContentAsset.Status.READY;
+            java.net.URI download = available && asset.type() == ContentAsset.Type.DOCUMENT
+                ? assets.documentLink(asset.id()).orElse(null) : null;
+            return new LessonView.ContentItem(c.id(), c.kind().name(), c.title() != null ? c.title() : asset == null ? null : asset.title(),
+                null, null, c.contentAssetId(), available, download, c.position(), c.required());
+        }).toList();
+        return new LessonView(node.id(), node.lessonKey(), node.title(), node.type().name(), decision.enrollmentId(), resume, items);
     }
 }

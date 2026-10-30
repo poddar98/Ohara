@@ -14,6 +14,8 @@ Status: **Proposed** · 2026-10-21 · AWS integrations are **proposed additions*
 
 ## 2. Direct-to-S3 upload flow (diagram 6)
 
+*Built 2026-10-31 (R3 slice 1) against the `ObjectStorage` port with `LocalObjectStorage` (disk + HMAC-signed `/dev-storage/**` URLs standing in for S3 presigned URLs, active when `ohara.storage.provider=local`, the default). Endpoints: `POST /api/assets` (Idempotency-Key), `POST /api/uploads/{id}/parts`, `GET /api/uploads/{id}`, `POST /api/uploads/{id}/complete|abort`; library `GET /api/assets`, `GET/PATCH/DELETE /api/assets/{id}`, `POST …/retire`. Documents/images get a magic-number check and are READY at completion; videos enqueue `MEDIA_PROCESS`. Abandoned uploads are expired by a scheduled sweeper on worker instances. The S3 adapter and the ObjectCreated safety net arrive with the AWS account (Q-04).*
+
 ```mermaid
 sequenceDiagram
   autonumber

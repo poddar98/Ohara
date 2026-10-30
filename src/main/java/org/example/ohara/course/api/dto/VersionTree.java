@@ -23,7 +23,7 @@ public record VersionTree(UUID id, UUID courseId, int versionNumber, CourseVersi
     }
 
     public record ContentNode(UUID id, LessonContent.Kind kind, String title, String body, String externalUrl,
-                              int position, boolean required) {
+                              UUID contentAssetId, int position, boolean required) {
     }
 
     public static VersionTree of(CourseVersion v) {
@@ -44,6 +44,7 @@ public record VersionTree(UUID id, UUID courseId, int versionNumber, CourseVersi
     }
 
     private static ContentNode content(LessonContent c) {
-        return new ContentNode(c.getId(), c.getKind(), c.getTitle(), c.getBody(), c.getExternalUrl(), c.getPosition(), c.isRequired());
+        return new ContentNode(c.getId(), c.getKind(), c.getTitle(), c.getBody(), c.getExternalUrl(), c.getContentAssetId(),
+            c.getPosition(), c.isRequired());
     }
 }

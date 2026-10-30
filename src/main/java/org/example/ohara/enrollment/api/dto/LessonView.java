@@ -1,11 +1,18 @@
 package org.example.ohara.enrollment.api.dto;
 
-import org.example.ohara.course.api.dto.VersionTree;
-
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
 /** {@code enrollmentId} is null for course staff and for free preview lessons viewed without an enrollment. */
 public record LessonView(UUID lessonId, UUID lessonKey, String title, String type, UUID enrollmentId,
-                         Long resumePositionMs, List<VersionTree.ContentNode> contents) {
+                         Long resumePositionMs, List<ContentItem> contents) {
+
+    /**
+     * {@code downloadUrl}: a short-lived link for documents. {@code available} is false when an asset is missing,
+     * still processing or retired. Video playback is authorized separately (playback sessions).
+     */
+    public record ContentItem(UUID id, String kind, String title, String body, String externalUrl, UUID assetId,
+                              boolean available, URI downloadUrl, int position, boolean required) {
+    }
 }

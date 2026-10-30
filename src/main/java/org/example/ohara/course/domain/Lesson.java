@@ -94,6 +94,10 @@ public class Lesson {
         return add(LessonContent.link(this, title, url, contents.size(), required));
     }
 
+    public LessonContent addAsset(LessonContent.Kind kind, String title, UUID assetId, boolean required) {
+        return add(LessonContent.asset(this, kind, title, assetId, contents.size(), required));
+    }
+
     private LessonContent add(LessonContent content) {
         contents.add(content);
         module.getVersion().touch();

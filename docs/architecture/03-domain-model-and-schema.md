@@ -201,6 +201,9 @@ Quiz/assignment question banks are intentionally not modeled here; they are a la
 
 ## 5. Content assets (`content` module)
 
+> **As built (V11, 2026-10-31):** `content_asset` (adds `original_filename`, `mime_type`, `content_profile`; `asset_type ∈ {VIDEO, DOCUMENT, IMAGE}`; `live_session_id`/`origin`/`replaced_by_asset_id` deferred to R4) and `media_upload` (`storage_upload_id`, `part_count`, `client_key` for idempotent start). `lesson_content` gained kinds `VIDEO`, `DOCUMENT` with a RESTRICT FK to `content_asset`. `media_rendition` comes with the processing pipeline.
+
+
 ### 5.1 `content_asset`
 - **Purpose:** a physical, reusable piece of content, independent of curriculum.
 - **Columns:** `id`; `owner_organization_id UUID NULL FK` (NULL = platform); `asset_type CHECK IN ('VIDEO','DOCUMENT','IMAGE','QUIZ','AUDIO')`; `title VARCHAR(200)`; `media_status VARCHAR(32) NOT NULL` (state machine §5.4; for non-video `PENDING_UPLOAD→UPLOADED→READY`); `source_object_key VARCHAR(512) NULL`; `source_version_id VARCHAR(128) NULL` (S3 object version — the immutable input version AI and transcodes reference); `source_sha256 CHAR(64) NULL`; `source_bytes BIGINT`, `mime_type VARCHAR(128)`; `duration_ms BIGINT NULL`; `width INT`, `height INT`, `frame_rate NUMERIC(6,3)`; `delivery_prefix VARCHAR(512) NULL` (e.g. `org/{org}/asset/{id}/v{n}/`); `master_playlist_key VARCHAR(512) NULL`; `processing_generation INT NOT NULL DEFAULT 0` (increments on every reprocess; delivery path includes it); `replaced_by_asset_id UUID NULL FK self`; `origin CHECK IN ('UPLOAD','LIVE_RECORDING','IMPORT')`; `live_session_id UUID NULL`; `failure_code VARCHAR(64)`, `failure_detail VARCHAR(1000)`; `ready_at`; `retired_at`; audit + `version`.
@@ -375,6 +378,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V8__course_catalog ✅ (2026-10-30) | course, course_instructor, course_version, course_module, lesson, lesson_content + immutability triggers | Applied. |
 | V9__enrollment ✅ (2026-10-31) | course_offering, enrollment, access_grant | Applied. |
 | V10__lesson_progress ✅ (2026-10-31) | lesson_progress | Applied. |
+| V11__content_assets ✅ (2026-10-31) | content_asset, media_upload; lesson_content asset kinds + FK | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

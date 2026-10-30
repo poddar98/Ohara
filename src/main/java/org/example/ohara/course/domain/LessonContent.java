@@ -14,12 +14,12 @@ import jakarta.persistence.Table;
 
 import java.util.UUID;
 
-/** One item in a lesson: inline reading text or an external link. Asset-backed kinds arrive with content assets. */
+/** One item in a lesson: inline reading text, an external link, or a video/document asset from the asset library. */
 @Entity
 @Table(name = "lesson_content")
 public class LessonContent {
 
-    public enum Kind { TEXT, EXTERNAL_LINK }
+    public enum Kind { TEXT, EXTERNAL_LINK, VIDEO, DOCUMENT }
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -77,6 +77,12 @@ public class LessonContent {
         return new LessonContent(lesson, Kind.EXTERNAL_LINK, title, null, url, position, required);
     }
 
+    static LessonContent asset(Lesson lesson, Kind kind, String title, UUID assetId, int position, boolean required) {
+        LessonContent content = new LessonContent(lesson, kind, title, null, null, position, required);
+        content.contentAssetId = assetId;
+        return content;
+    }
+
     LessonContent copyInto(Lesson target) {
         LessonContent copy = new LessonContent(target, kind, title, body, externalUrl, position, required);
         copy.contentAssetId = contentAssetId;
@@ -104,4 +110,5 @@ public class LessonContent {
     public String getExternalUrl() { return externalUrl; }
     public int getPosition() { return position; }
     public boolean isRequired() { return required; }
+    public UUID getContentAssetId() { return contentAssetId; }
 }
