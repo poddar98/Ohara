@@ -2,11 +2,15 @@ package org.example.ohara.common.web;
 
 import org.springframework.http.HttpStatus;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /** Base for errors that map to a specific HTTP status and a stable, client-facing {@code code}. */
 public abstract class ApiException extends RuntimeException {
 
     private final HttpStatus status;
     private final String code;
+    private final Map<String, Object> properties = new LinkedHashMap<>();
 
     protected ApiException(HttpStatus status, String code, String message) {
         super(message);
@@ -20,6 +24,16 @@ public abstract class ApiException extends RuntimeException {
 
     public String getCode() {
         return code;
+    }
+
+    /** Extra problem-details members (e.g. a list of failed checks). */
+    public ApiException with(String name, Object value) {
+        properties.put(name, value);
+        return this;
+    }
+
+    public Map<String, Object> getProperties() {
+        return properties;
     }
 
     public static class BadRequest extends ApiException {

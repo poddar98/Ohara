@@ -107,6 +107,8 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 
 ## 4. Catalog & curriculum
 
+*Authoring built 2026-10-30 (R2 slice 1): `POST/GET /api/courses`, `GET /api/orgs/{orgId}/courses`, `GET /api/admin/courses`, `GET/PATCH /api/courses/{id}`, `POST …/retire`, staff `GET/PUT /api/courses/{id}/instructors`, `DELETE …/instructors/{userId}`; versions `GET/POST /api/courses/{id}/versions`, `GET/PATCH/DELETE …/{versionId}`, `POST …/{versionId}/publish|archive`; curriculum `POST …/{versionId}/modules`, `PATCH/DELETE …/modules/{moduleId}`, `PUT …/modules/order`, `POST …/modules/{moduleId}/lessons`, `PUT …/modules/{moduleId}/lessons/order`, `PATCH/DELETE …/lessons/{lessonId}`, `POST …/lessons/{lessonId}/contents`, `PUT …/lessons/{lessonId}/contents/order`, `PATCH/DELETE …/contents/{contentId}`. Mutations return the whole version tree. Public catalog and learner curriculum come with enrollment.*
+
 | Method & path | Purpose | Authz | Request / Response | Notes |
 |---|---|---|---|---|
 | `GET /api/catalog/courses` | B2C discovery | public | `?q&category&level&language&cursor` → page `CourseCard{id, slug, title, subtitle, thumbnailUrl, priceMinor, currency, offeringId, durationMinutes}` | only PUBLIC courses with OPEN B2C offering; cached 60 s |

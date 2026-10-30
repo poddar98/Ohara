@@ -51,6 +51,24 @@ public class OrgAuthorizationService {
         return new OrgAccess(organizationId, actor.userId(), membership.getRoles(), false);
     }
 
+    /** Non-throwing variant of {@link #require}: platform staff rules included. */
+    @Transactional(readOnly = true)
+    public boolean allows(CurrentActor actor, UUID organizationId, OrgPermission permission) {
+        if (actor.isPlatformAdmin() || (actor.isPlatformSupport() && permission.isReadOnly())) {
+            return organizations.existsById(organizationId);
+        }
+        return userHas(organizationId, actor.userId(), permission);
+    }
+
+    /** Whether {@code userId} (not necessarily the caller) is an active member of an active org with the permission. */
+    @Transactional(readOnly = true)
+    public boolean userHas(UUID organizationId, UUID userId, OrgPermission permission) {
+        return organizations.findById(organizationId).filter(Organization::isActive).isPresent()
+            && memberships.findByOrganizationIdAndUserId(organizationId, userId)
+                .filter(m -> m.isActive() && permission.isGrantedToAny(m.getRoles()))
+                .isPresent();
+    }
+
     static ApiException notFound() {
         return new ApiException.NotFound("organization_not_found", "Organization not found");
     }

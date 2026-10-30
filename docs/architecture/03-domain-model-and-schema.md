@@ -158,6 +158,9 @@ Add `family_id UUID NOT NULL` (all rotations of one login share it; reuse revoke
 
 ## 4. Catalog and curriculum (`course` module)
 
+> **As built (V8, 2026-10-30):** `course`, `course_instructor`, `course_version`, `course_module`, `lesson`, `lesson_content`. Differences from the design below: `course_category` deferred (no catalog search yet); `lesson_content.kind ∈ {TEXT, EXTERNAL_LINK}` with an inline `body` for TEXT and `course_version_id` denormalized (for the trigger) — asset-backed kinds and the `content_asset_id` FK come in R3; `settings JSONB` deferred. Immutability is enforced by triggers: curriculum rows of a non-DRAFT version can't be inserted/updated/deleted, and a published version may only move to ARCHIVED.
+
+
 ### 4.1 `course_category`
 `id`, `slug UNIQUE`, `name`, `parent_id NULL FK self`, `sort_order INT`. Tens of rows.
 
@@ -366,6 +369,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V5__organization ✅ (2026-10-21) | organization, organization_membership (+ `_role`), cohort, cohort_membership (composite FK keeps placements inside the cohort's org) | Applied. |
 | V6__invitation_and_bulk_import ✅ (2026-10-21) | invitation, bulk_import_job, bulk_import_row | Applied. |
 | V7__user_consent ✅ (2026-10-22) | user_consent | Applied. |
+| V8__course_catalog ✅ (2026-10-30) | course, course_instructor, course_version, course_module, lesson, lesson_content + immutability triggers | Applied to test DB. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

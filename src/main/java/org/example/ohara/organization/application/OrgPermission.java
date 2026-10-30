@@ -12,7 +12,11 @@ public enum OrgPermission {
     VIEW_MEMBERS(true, OrgRole.ORG_ADMIN),
     MANAGE_MEMBERS(false, OrgRole.ORG_ADMIN),
     VIEW_COHORTS(true, OrgRole.ORG_ADMIN, OrgRole.INSTRUCTOR),
-    MANAGE_COHORTS(false, OrgRole.ORG_ADMIN);
+    MANAGE_COHORTS(false, OrgRole.ORG_ADMIN),
+    /** Create courses owned by the organization and edit those they teach. */
+    AUTHOR_COURSES(false, OrgRole.ORG_ADMIN, OrgRole.INSTRUCTOR),
+    /** Full control over every course the organization owns. */
+    MANAGE_COURSES(false, OrgRole.ORG_ADMIN);
 
     private final boolean readOnly;
     private final Set<OrgRole> grantedTo;

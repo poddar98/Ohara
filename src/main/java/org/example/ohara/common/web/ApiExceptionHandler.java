@@ -30,7 +30,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ProblemDetail> handleApi(ApiException ex, HttpServletRequest request) {
-        return problem(ex.getStatus(), ex.getCode(), ex.getMessage(), request);
+        ResponseEntity<ProblemDetail> response = problem(ex.getStatus(), ex.getCode(), ex.getMessage(), request);
+        ex.getProperties().forEach(response.getBody()::setProperty);
+        return response;
     }
 
     /** Safety net for races that slip past service-level checks (e.g. two concurrent inserts of the same unique row). */
