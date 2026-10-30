@@ -39,10 +39,19 @@ public class TestUsers {
     }
 
     public TestUser platformAdmin() throws Exception {
-        return create(true);
+        return create("ROLE_PLATFORM_ADMIN");
+    }
+
+    /** A user holding one extra platform role, e.g. ROLE_ENROLLMENT_MANAGER. */
+    public TestUser withPlatformRole(String role) throws Exception {
+        return create(role);
     }
 
     private TestUser create(boolean platformAdmin) throws Exception {
+        return create(platformAdmin ? "ROLE_PLATFORM_ADMIN" : null);
+    }
+
+    private TestUser create(String extraRole) throws Exception {
         UUID userId = UUID.randomUUID();
         String email = "t-" + userId + "@example.com";
         jdbc.sql("""
@@ -52,8 +61,8 @@ public class TestUsers {
         jdbc.sql("INSERT INTO user_profile (user_id, display_name, first_name, last_name) VALUES (:id, 'Test User', 'Test', 'User')")
             .param("id", userId).update();
         grant(userId, "ROLE_USER");
-        if (platformAdmin) {
-            grant(userId, "ROLE_PLATFORM_ADMIN");
+        if (extraRole != null) {
+            grant(userId, extraRole);
         }
         UUID identityId = UUID.randomUUID();
         jdbc.sql("INSERT INTO auth_identity (id, user_id, provider, identifier, verified_at) VALUES (:iid, :id, 'local', :email, now())")

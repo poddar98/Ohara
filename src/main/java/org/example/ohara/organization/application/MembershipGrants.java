@@ -24,10 +24,13 @@ class MembershipGrants {
 
     private final OrganizationMembershipRepository memberships;
     private final CohortMembershipRepository cohortMemberships;
+    private final CohortPlacementEvents events;
 
-    MembershipGrants(OrganizationMembershipRepository memberships, CohortMembershipRepository cohortMemberships) {
+    MembershipGrants(OrganizationMembershipRepository memberships, CohortMembershipRepository cohortMemberships,
+                     CohortPlacementEvents events) {
         this.memberships = memberships;
         this.cohortMemberships = cohortMemberships;
+        this.events = events;
     }
 
     Optional<OrganizationMembership> membership(UUID organizationId, UUID userId) {
@@ -79,7 +82,7 @@ class MembershipGrants {
         if (!cohort.acceptsMembers() || cohortMemberships.findOpen(cohort.getId(), user.getId()).isPresent()) {
             return false;
         }
-        cohortMemberships.save(new CohortMembership(cohort, user));
+        events.started(cohortMemberships.save(new CohortMembership(cohort, user)));
         return true;
     }
 }

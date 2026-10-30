@@ -139,6 +139,8 @@ B2B colleges also pay offline under contract; in Ohara that is represented only 
 
 ## 6. Central authorization: `ContentAccessService`
 
+*Built 2026-10-31 (`enrollment.application.ContentAccessService.lessonAccess`): staff → preview of current version → enrollment (ACTIVE/COMPLETED) pinned to the lesson's version with a grant active now and an active college. Cohort fan-out is synchronous in the placement transaction via `CohortPlacementEvents` (not an outbox): placement and access always commit together. Licensing (Q-03) is approximated: platform courses are offered to colleges by platform admins only.*
+
 Single entry point in the `enrollment` module's named interface:
 
 ```java

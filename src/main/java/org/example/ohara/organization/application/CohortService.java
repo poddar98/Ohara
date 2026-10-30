@@ -34,13 +34,16 @@ public class CohortService {
     private final CohortMembershipRepository cohortMemberships;
     private final OrganizationMembershipRepository memberships;
     private final OrgAuthorizationService authorization;
+    private final CohortPlacementEvents events;
 
     public CohortService(CohortRepository cohorts, CohortMembershipRepository cohortMemberships,
-                         OrganizationMembershipRepository memberships, OrgAuthorizationService authorization) {
+                         OrganizationMembershipRepository memberships, OrgAuthorizationService authorization,
+                         CohortPlacementEvents events) {
         this.cohorts = cohorts;
         this.cohortMemberships = cohortMemberships;
         this.memberships = memberships;
         this.authorization = authorization;
+        this.events = events;
     }
 
     @Transactional
@@ -88,7 +91,10 @@ public class CohortService {
         if (request.status() != null && request.status() != cohort.getStatus()) {
             cohort.changeStatus(request.status());
             if (!cohort.acceptsMembers()) {
-                cohortMemberships.findOpenByCohort(cohortId).forEach(cm -> cm.end(CohortMembership.Status.COMPLETED));
+                cohortMemberships.findOpenByCohort(cohortId).forEach(cm -> {
+                    cm.end(CohortMembership.Status.COMPLETED);
+                    events.ended(cm);
+                });
             }
         }
         return CohortResponse.of(cohort, cohortMemberships.findOpenByCohort(cohortId).size());
@@ -125,7 +131,7 @@ public class CohortService {
             } else if (!eligible.containsKey(userId)) {
                 notEligible.add(userId);
             } else {
-                cohortMemberships.save(new CohortMembership(cohort, eligible.get(userId).getUser()));
+                events.started(cohortMemberships.save(new CohortMembership(cohort, eligible.get(userId).getUser())));
                 added.add(userId);
             }
         }
@@ -136,9 +142,9 @@ public class CohortService {
     public void removeMember(CurrentActor actor, UUID organizationId, UUID cohortId, UUID userId) {
         authorization.require(actor, organizationId, OrgPermission.MANAGE_COHORTS);
         cohort(organizationId, cohortId);
-        cohortMemberships.findOpen(cohortId, userId)
-            .orElseThrow(CohortService::cohortMemberNotFound)
-            .end(CohortMembership.Status.REMOVED);
+        CohortMembership placement = cohortMemberships.findOpen(cohortId, userId).orElseThrow(CohortService::cohortMemberNotFound);
+        placement.end(CohortMembership.Status.REMOVED);
+        events.ended(placement);
     }
 
     @Transactional
@@ -156,7 +162,10 @@ public class CohortService {
         current.transferTo(toCohortId);
         // Flush the ended placement first so the open-placement unique index never sees two open rows mid-transaction.
         cohortMemberships.saveAndFlush(current);
-        return CohortMemberResponse.of(cohortMemberships.save(new CohortMembership(target, current.getUser())));
+        events.ended(current);
+        CohortMembership moved = cohortMemberships.save(new CohortMembership(target, current.getUser()));
+        events.started(moved);
+        return CohortMemberResponse.of(moved);
     }
 
     private Cohort cohort(UUID organizationId, UUID cohortId) {

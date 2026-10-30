@@ -49,6 +49,12 @@ public class UserService {
         return userRepository.findById(userId);
     }
 
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, User> findByIds(java.util.Collection<UUID> ids) {
+        return userRepository.findAllById(ids).stream()
+            .collect(java.util.stream.Collectors.toMap(User::getId, java.util.function.Function.identity()));
+    }
+
     /** Used by other modules (auth) that need to look up or create users without touching the repository. */
     @Transactional(readOnly = true)
     public Optional<User> findByEmail(String email) {

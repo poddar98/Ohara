@@ -46,19 +46,22 @@ public class OrganizationService {
     private final CohortMembershipRepository cohortMemberships;
     private final OrgAuthorizationService authorization;
     private final UserService userService;
+    private final CohortPlacementEvents events;
 
     public OrganizationService(OrganizationRepository organizations,
                                OrganizationMembershipRepository memberships,
                                CohortRepository cohorts,
                                CohortMembershipRepository cohortMemberships,
                                OrgAuthorizationService authorization,
-                               UserService userService) {
+                               UserService userService,
+                               CohortPlacementEvents events) {
         this.organizations = organizations;
         this.memberships = memberships;
         this.cohorts = cohorts;
         this.cohortMemberships = cohortMemberships;
         this.authorization = authorization;
         this.userService = userService;
+        this.events = events;
     }
 
     // --- platform administration -------------------------------------------------------------------
@@ -187,7 +190,10 @@ public class OrganizationService {
         // Cohort placement requires being an active learner; end placements that no longer qualify.
         if (newStatus == OrganizationMembership.Status.REMOVED || !newRoles.contains(OrgRole.LEARNER)) {
             cohortMemberships.findOpenInOrganization(organizationId, userId)
-                .forEach(cm -> cm.end(CohortMembership.Status.REMOVED));
+                .forEach(cm -> {
+                    cm.end(CohortMembership.Status.REMOVED);
+                    events.ended(cm);
+                });
         }
         return MemberResponse.of(membership);
     }

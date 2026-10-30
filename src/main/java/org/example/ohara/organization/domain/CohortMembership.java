@@ -73,6 +73,10 @@ public class CohortMembership {
         return id;
     }
 
+    public UUID getOrganizationId() {
+        return organizationId;
+    }
+
     public UUID getCohortId() {
         return cohortId;
     }

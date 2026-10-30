@@ -134,6 +134,8 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 
 ## 5. Enrollment, entitlements, progress, staff access grants
 
+*Built 2026-10-31 (R2 slice 2): B2B `POST/GET /api/orgs/{orgId}/offerings`, `GET/PATCH …/{id}`, `POST …/{id}/open|close`, `GET …/{id}/enrollments`, `POST /api/orgs/{orgId}/enrollments/{id}/revoke`; B2C `POST/GET /api/admin/offerings`, `POST …/{id}/open|close`, `GET …/{id}/enrollments`; contract team `POST /api/admin/offerings/{id}/grants` (repeat with the same reference → 200, no duplicate; replaces the Idempotency-Key design), `POST /api/admin/grants/{id}/extend|revoke`, `GET /api/admin/access-grants[.csv]?source&from&to`; learner `GET /api/me/courses`, `GET /api/enrollments/{id}/curriculum`, `GET /api/lessons/{lessonId}`. Progress endpoints are next.*
+
 | Method & path | Purpose | Authz | Request / Response | Errors / idempotency |
 |---|---|---|---|---|
 | `POST /api/orgs/{orgId}/offerings` | Create B2B offering | ORG_ADMIN; course licensed/owned | `{courseId, cohortId?, startsAt, endsAt, versionPolicy, pinnedVersionId?, seatLimit?}` → 201 | 409 duplicate cohort offering (A) |

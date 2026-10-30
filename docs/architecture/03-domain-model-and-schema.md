@@ -230,6 +230,9 @@ PENDING_UPLOAD → UPLOADED → PROCESSING → READY
 
 ## 6. Enrollment, access and progress (`enrollment` module)
 
+> **As built (V9, 2026-10-31):** `course_offering`, `enrollment`, `access_grant` as designed, with: offering `title`; grant uniqueness is `(enrollment_id, source, source_ref_id)` (one cohort placement can feed several offerings); `scope` column dropped (preview is a lesson flag); `revoked_by` added. `lesson_progress` comes in the next slice.
+
+
 ### 6.1 `course_offering`
 - **Purpose:** *how* a course is delivered to a population: B2B (org + optional cohort + window) or B2C (public listing + price).
 - **Columns:** `id`; `course_id NOT NULL FK`; `channel CHECK IN ('B2B','B2C')`; `organization_id UUID NULL FK`; `cohort_id UUID NULL FK`; `version_policy CHECK IN ('PINNED','LATEST_ON_ENROLL')` default `LATEST_ON_ENROLL`; `pinned_course_version_id NULL FK`; `starts_at TIMESTAMPTZ NULL`, `ends_at TIMESTAMPTZ NULL`; `access_duration_days INT NULL` (B2C: access length after the grant starts; NULL = lifetime of offering); `list_price_minor BIGINT NULL`, `currency CHAR(3) NULL` (**display only** — payment happens offline; Ohara never charges); `status CHECK IN ('DRAFT','OPEN','CLOSED','ARCHIVED')`; `seat_limit INT NULL`; audit.
@@ -369,7 +372,8 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V5__organization ✅ (2026-10-21) | organization, organization_membership (+ `_role`), cohort, cohort_membership (composite FK keeps placements inside the cohort's org) | Applied. |
 | V6__invitation_and_bulk_import ✅ (2026-10-21) | invitation, bulk_import_job, bulk_import_row | Applied. |
 | V7__user_consent ✅ (2026-10-22) | user_consent | Applied. |
-| V8__course_catalog ✅ (2026-10-30) | course, course_instructor, course_version, course_module, lesson, lesson_content + immutability triggers | Applied to test DB. |
+| V8__course_catalog ✅ (2026-10-30) | course, course_instructor, course_version, course_module, lesson, lesson_content + immutability triggers | Applied. |
+| V9__enrollment ✅ (2026-10-31) | course_offering, enrollment, access_grant | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |
