@@ -26,10 +26,28 @@ public class AssetQueries {
 
     private final ContentAssetRepository assets;
     private final ObjectStorage storage;
+    private final CdnSigner cdn;
 
-    AssetQueries(ContentAssetRepository assets, ObjectStorage storage) {
+    AssetQueries(ContentAssetRepository assets, ObjectStorage storage, CdnSigner cdn) {
         this.assets = assets;
         this.storage = storage;
+        this.cdn = cdn;
+    }
+
+    /** Where to start streaming, and the cookies that unlock exactly this video's files until {@code expiresAt}. */
+    public record PlaybackGrant(String masterPlaylistUrl, java.util.List<CdnSigner.Cookie> cookies) {
+    }
+
+    /** Empty unless the asset is a READY video. Callers must have authorized the viewer. */
+    @Transactional(readOnly = true)
+    public Optional<PlaybackGrant> playback(UUID assetId, java.time.Instant expiresAt) {
+        return assets.findById(assetId)
+            .filter(a -> a.getType() == ContentAsset.Type.VIDEO && a.getStatus() == ContentAsset.Status.READY)
+            .map(a -> {
+                String master = a.getMasterPlaylistKey();
+                String prefix = master.substring(0, master.lastIndexOf('/') + 1);
+                return new PlaybackGrant(cdn.urlOf(master), cdn.sign(prefix, expiresAt));
+            });
     }
 
     @Transactional(readOnly = true)

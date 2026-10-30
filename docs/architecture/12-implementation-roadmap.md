@@ -77,6 +77,8 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Out of scope:** any online payment, checkout, cart or gateway; subscriptions; coupons/promotions engine, certificates, assessments/question banks (separate module later).
 
 ## R3 — Video upload, processing and playback
+
+**Status (2026-10-31): complete against local stand-ins** — slice 1 assets & direct uploads, slice 2 probe/ladder/transcode/verify pipeline, slice 3 playback sessions with signed-cookie delivery. Remaining for production: S3, MediaConvert and CloudFront adapters + IaC (needs the AWS account, Q-04), thumbnails, captions (with R5), concurrent-stream limit.
 - **Objective:** direct-to-S3 multipart upload, durable pipeline, MediaConvert HLS, CloudFront signed-cookie playback, resume.
 - **Dependencies:** R2 (lessons, `ContentAccessService`); AWS account with S3, MediaConvert, CloudFront, SQS, EventBridge, Secrets Manager (Q-04).
 - **DB:** `media_upload`, `media_rendition` (V6 if not already), job types.

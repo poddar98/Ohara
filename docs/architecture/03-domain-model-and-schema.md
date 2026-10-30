@@ -380,6 +380,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V10__lesson_progress ✅ (2026-10-31) | lesson_progress | Applied. |
 | V11__content_assets ✅ (2026-10-31) | content_asset, media_upload; lesson_content asset kinds + FK | Applied. |
 | V12__media_renditions ✅ (2026-10-31) | media_rendition; content_asset.transcode_job_ref, transcode_attempts | Applied. |
+| V13__playback_session ✅ (2026-10-31) | playback_session | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

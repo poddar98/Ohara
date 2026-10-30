@@ -144,6 +144,8 @@ flowchart LR
 
 ## 6. Playback authorization (diagram 9)
 
+*Built 2026-10-31 (R3 slice 3, `media` module): `POST /api/playback/sessions {lessonId, contentId}` runs the learner lesson check (ContentAccessService), requires a READY video, records a `playback_session`, and sets signed cookies scoped to the asset's generation prefix via the `CdnSigner` port; expiry = min(20 min, end of the learner's access); `POST …/{id}/refresh` re-checks access. `LocalCdn` + `/dev-cdn/**` stand in for CloudFront (policy = HMAC(prefix, expiry)); immutable caching for segments, 5-minute for playlists. CloudFront key-group signing arrives with the AWS account.*
+
 Three distinct checks:
 1. **Authentication** — who is the caller (JWT).
 2. **Entitlement** — may this user play this asset now (`ContentAccessService.check(actor, ASSET, PLAY)`).

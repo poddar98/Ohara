@@ -18,6 +18,7 @@ import org.example.ohara.enrollment.domain.LessonProgress;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -115,6 +116,9 @@ public class LearnerService {
             return new LessonView.ContentItem(c.id(), c.kind().name(), c.title() != null ? c.title() : asset == null ? null : asset.title(),
                 null, null, c.contentAssetId(), available, download, c.position(), c.required());
         }).toList();
-        return new LessonView(node.id(), node.lessonKey(), node.title(), node.type().name(), decision.enrollmentId(), resume, items);
+        Instant accessUntil = decision.enrollmentId() == null ? null
+            : enrollments.findById(decision.enrollmentId()).map(access::accessUntil).orElse(null);
+        return new LessonView(node.id(), node.lessonKey(), node.title(), node.type().name(), decision.enrollmentId(), resume,
+            accessUntil, items);
     }
 }
