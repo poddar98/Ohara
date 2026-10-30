@@ -57,6 +57,8 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Out of scope:** SSO/SAML, custom roles, SMS OTP.
 
 ## R2 — Course catalog, enrollment and staff-granted B2C access
+
+**Status (2026-10-31): complete** on branch `r2-courses-enrollment` — slice 1 catalog & versioned curriculum, slice 2 offerings/enrollment/grants/ContentAccessService, slice 3 progress & version migration. Deferred: public B2C catalog API, minor-publish auto-migration, nightly EXPIRED marking (access already ends by grant window), document assets (R3).
 - **Objective:** courses with versions, curriculum, B2B offerings, B2C access granted by the contract team after offline payment, `ContentAccessService`, progress.
 - **Dependencies:** R1 (orgs, cohorts, jobs, outbox). `content_asset` table exists (V6) but only documents/images upload here; videos in R3.
 - **DB:** V5 catalog, V6 content, V7 enrollment (incl. `access_grant.external_reference`, `ROLE_ENROLLMENT_MANAGER`).

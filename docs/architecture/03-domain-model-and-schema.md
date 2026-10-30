@@ -230,7 +230,7 @@ PENDING_UPLOAD → UPLOADED → PROCESSING → READY
 
 ## 6. Enrollment, access and progress (`enrollment` module)
 
-> **As built (V9, 2026-10-31):** `course_offering`, `enrollment`, `access_grant` as designed, with: offering `title`; grant uniqueness is `(enrollment_id, source, source_ref_id)` (one cohort placement can feed several offerings); `scope` column dropped (preview is a lesson flag); `revoked_by` added. `lesson_progress` comes in the next slice.
+> **As built (V9, 2026-10-31):** `course_offering`, `enrollment`, `access_grant` as designed, with: offering `title`; grant uniqueness is `(enrollment_id, source, source_ref_id)` (one cohort placement can feed several offerings); `scope` column dropped (preview is a lesson flag); `revoked_by` added. `lesson_progress` built in V10 (2026-10-31): status `IN_PROGRESS|COMPLETED` (no row = not started), `created_at` added; heartbeats take a row lock instead of an UPSERT.
 
 
 ### 6.1 `course_offering`
@@ -374,6 +374,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V7__user_consent ✅ (2026-10-22) | user_consent | Applied. |
 | V8__course_catalog ✅ (2026-10-30) | course, course_instructor, course_version, course_module, lesson, lesson_content + immutability triggers | Applied. |
 | V9__enrollment ✅ (2026-10-31) | course_offering, enrollment, access_grant | Applied. |
+| V10__lesson_progress ✅ (2026-10-31) | lesson_progress | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

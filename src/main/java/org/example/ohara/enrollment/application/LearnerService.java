@@ -11,10 +11,15 @@ import org.example.ohara.enrollment.domain.CourseOffering;
 import org.example.ohara.enrollment.domain.Enrollment;
 import org.example.ohara.enrollment.infrastructure.persistence.CourseOfferingRepository;
 import org.example.ohara.enrollment.infrastructure.persistence.EnrollmentRepository;
+import org.example.ohara.enrollment.infrastructure.persistence.LessonProgressRepository;
+import org.example.ohara.enrollment.domain.LessonProgress;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 /** What a learner sees: their courses, the outline of the version they study, and lessons they may open. */
@@ -25,13 +30,15 @@ public class LearnerService {
     private final CourseOfferingRepository offerings;
     private final CourseQueries courses;
     private final ContentAccessService access;
+    private final LessonProgressRepository progress;
 
     public LearnerService(EnrollmentRepository enrollments, CourseOfferingRepository offerings, CourseQueries courses,
-                          ContentAccessService access) {
+                          ContentAccessService access, LessonProgressRepository progress) {
         this.enrollments = enrollments;
         this.offerings = offerings;
         this.courses = courses;
         this.access = access;
+        this.progress = progress;
     }
 
     @Transactional(readOnly = true)
@@ -53,14 +60,17 @@ public class LearnerService {
         boolean hasAccess = access.enrollmentAccess(enrollment).allowed();
         VersionTree tree = courses.tree(enrollment.getCourseVersionId()).orElseThrow();
         String title = courses.course(enrollment.getCourseId()).map(CourseQueries.CourseFacts::title).orElse(tree.title());
+        Map<UUID, LessonProgress> byKey = progress.findByEnrollmentId(enrollment.getId()).stream()
+            .collect(Collectors.toMap(LessonProgress::getLessonKey, Function.identity()));
         List<LearnerCurriculum.Module> modules = tree.modules().stream()
             .map(m -> new LearnerCurriculum.Module(m.id(), m.title(), m.lessons().stream()
                 .map(l -> new LearnerCurriculum.LessonItem(l.id(), l.lessonKey(), l.title(), l.type().name(), l.preview(),
-                    l.durationSeconds(), !hasAccess && !l.preview()))
+                    l.durationSeconds(), !hasAccess && !l.preview(),
+                    byKey.containsKey(l.lessonKey()) ? byKey.get(l.lessonKey()).getStatus().name() : "NOT_STARTED"))
                 .toList()))
             .toList();
         return new LearnerCurriculum(enrollment.getId(), enrollment.getCourseId(), title, enrollment.getCourseVersionId(),
-            hasAccess, access.accessUntil(enrollment), modules);
+            hasAccess, access.accessUntil(enrollment), enrollment.getProgressPercent(), modules);
     }
 
     /**
@@ -83,6 +93,11 @@ public class LearnerService {
             .flatMap(m -> m.lessons().stream())
             .filter(l -> l.id().equals(lessonId))
             .findFirst().orElseThrow();
-        return new LessonView(node.id(), node.lessonKey(), node.title(), node.type().name(), decision.enrollmentId(), node.contents());
+        Long resume = decision.enrollmentId() == null ? null
+            : progress.findByEnrollmentId(decision.enrollmentId()).stream()
+                .filter(p -> p.getLessonKey().equals(node.lessonKey()))
+                .map(LessonProgress::getVideoPositionMs).filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        return new LessonView(node.id(), node.lessonKey(), node.title(), node.type().name(), decision.enrollmentId(), resume,
+            node.contents());
     }
 }

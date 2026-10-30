@@ -180,6 +180,8 @@ Returns `validUntil = min(grant.valid_until, offering.ends_at)` so callers can c
 
 ## 7. Progress and completion
 
+*Built 2026-10-31: heartbeats credit watched time at most at wall-clock speed (+5 s slack, first heartbeat ≤ 30 s), stale client timestamps don't move the position back, VIDEO lessons complete at 90 % watched of the curriculum duration, other lessons via `…/complete`; the enrollment percentage is recomputed synchronously on completion (counting only lessons of its current version) and 100 % completes the enrollment. Version migration: learner self-service unless the offering is PINNED; org/platform admins always.*
+
 - Heartbeat `PUT /api/enrollments/{id}/lessons/{lessonKey}/progress {positionMs, durationMs, watchedDeltaMs, clientTs}` every 20 s and on pause/seek/exit. Server clamps `watchedDeltaMs ≤ wall-clock since last heartbeat + 5 s` to blunt fake completion.
 - Video lesson COMPLETED when `watched_ms ≥ 90%` of duration (configurable per offering); reading lessons when the learner marks done; quiz lessons on passing attempt (assessment module).
 - Resume: `GET /api/me/continue-watching` (by `updated_at`), and per-lesson `video_position_ms` returned with the playback authorization.

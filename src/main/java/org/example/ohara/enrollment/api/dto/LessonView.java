@@ -7,5 +7,5 @@ import java.util.UUID;
 
 /** {@code enrollmentId} is null for course staff and for free preview lessons viewed without an enrollment. */
 public record LessonView(UUID lessonId, UUID lessonKey, String title, String type, UUID enrollmentId,
-                         List<VersionTree.ContentNode> contents) {
+                         Long resumePositionMs, List<VersionTree.ContentNode> contents) {
 }

@@ -104,6 +104,36 @@ public class Enrollment {
         }
     }
 
+    /** Recomputed after progress changes; reaching 100% completes the enrollment (and it stays completed). */
+    public void progressed(BigDecimal percent, Instant now) {
+        this.progressPercent = percent;
+        this.lastActivityAt = now;
+        if (percent.compareTo(BigDecimal.valueOf(100)) >= 0 && status == Status.ACTIVE) {
+            this.status = Status.COMPLETED;
+            this.completedAt = now;
+        }
+        touch();
+    }
+
+    public void touchActivity(Instant now) {
+        this.lastActivityAt = now;
+        touch();
+    }
+
+    /** Moves the learner to another version of the course; progress follows by lesson key. */
+    public void migrateTo(UUID newVersionId) {
+        this.courseVersionId = newVersionId;
+        touch();
+    }
+
+    public Instant getCompletedAt() {
+        return completedAt;
+    }
+
+    public Instant getLastActivityAt() {
+        return lastActivityAt;
+    }
+
     public boolean isStudying() {
         return status == Status.ACTIVE || status == Status.COMPLETED;
     }
