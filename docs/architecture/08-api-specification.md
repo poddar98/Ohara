@@ -192,6 +192,22 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 
 ## 8. Live classes
 
+*As built (R4 slice 1, 2026-10-31):*
+- **Staff endpoints** are org-scoped under `/api/orgs/{orgId}/live-sessions`:
+  - `POST` (schedule), `GET ?cohortId&from&to`, `GET /{id}`, `PATCH /{id}`
+  - `POST /{id}/cancel`, `GET /{id}/ingest` (no-store), `POST /{id}/end`
+  - `GET /{id}/attendance`, `PUT /{id}/attendance/{userId}`
+- **Who may do what.** Scheduling needs the new `SCHEDULE_LIVE` permission (ORG_ADMIN, INSTRUCTOR). Instructors manage only the sessions they host, and admins manage all of them.
+- **Learner endpoints:**
+  - `GET /api/me/live-sessions`
+  - `POST /api/live-sessions/{id}/join`: rejoin to refresh the tokens; there is no separate chat-token endpoint.
+  - `POST /api/live-sessions/{id}/heartbeat` → `{status, attendedSeconds}`
+- **Error codes:**
+  - `host_double_booked` and `cohort_double_booked` (409)
+  - `session_not_open` (409, with `opensAt`), `session_ended`, `session_cancelled`
+  - `access_expired` (403), `invalid_host`, `lesson_not_in_course`, `session_too_long`, `start_in_past` (422)
+- **Not built yet:** recording publish and retry (slice 2), `If-Match`.
+
 | Method & path | Purpose | Authz | Request / Response | Notes |
 |---|---|---|---|---|
 | `POST /api/live-sessions` | Schedule | instructor of offering / ORG_ADMIN | `{offeringId, cohortId, lessonId?, title, scheduledStart, scheduledEnd, hostUserId?, needsHd?}` → 201 | 409 host overlap; 422 cohort not in offering (A) |

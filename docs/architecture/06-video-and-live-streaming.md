@@ -180,6 +180,15 @@ sequenceDiagram
 
 ## 7. Live lectures
 
+> **As built (R4 slice 1, 2026-10-31), `live` module, against a local stand-in (`LocalLiveProvider`, `/dev-live/**`):**
+> - **Provider port.** The `LiveStreamingProvider` port is IVS-shaped: create a channel and chat room, set the channel type, read the stream key, issue a per-viewer playback token, issue a chat token with capabilities, and stop a stream.
+> - **Channels.** One channel per cohort, created on the first schedule. Its type is switched to HD only when the host prepares a `needs_hd` session.
+> - **States.** SCHEDULED → READY (host fetched the ingest settings; there is no T-30 job yet) → LIVE (provider stream-start inside the slot, up to 30 min early) → ENDED. A stream-start with no matching slot is rejected and stopped.
+> - **Disconnects.** A stream-end only marks the session offline. The sweeper (`LiveMaintenance`, every 1 min) ends a session that stays offline past `ohara.live.reconnect-grace` (10 min), with `actual_end` set to the moment it went offline. It also stops a session that runs `max-overrun` (60 min) past its slot.
+> - **Join.** Allowed for the host, org staff (`VIEW_COHORTS`, as moderators) and learners who pass `ContentAccessService.offeringAccess`, from 15 min before the start. It returns a playback token (60 min) and a chat token. Learners get `SEND_MESSAGE`; staff also get `DELETE_MESSAGE` and `DISCONNECT_USER`.
+> - **Attendance.** Learners send heartbeats every 30 s, and each one credits at most 2 intervals, only while the class is on air. At the end, every learner with access gets a row: PRESENT at ≥ 75% (`ohara.live.present-ratio`, global, not per org yet), PARTIAL if more than 0, otherwise ABSENT. Manual overrides stick.
+> - **Deferred to slice 2:** recordings → content assets, reminder notifications, peak viewers, stream-key rotation, and the IVS adapter with its EventBridge intake.
+
 ### 7.1 Requirements recap
 Instructor → up to 500 learners per cohort; chat / moderated Q&A rather than two-way video; ~87 one-hour sessions/month (10 cohorts × 2/week); recordings become lessons.
 

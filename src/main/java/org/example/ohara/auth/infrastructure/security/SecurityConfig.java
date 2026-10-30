@@ -36,7 +36,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/logout-all").authenticated()
                 .requestMatchers("/api/health", "/api/auth/**", "/api/invitations/**", "/actuator/health", "/actuator/info").permitAll()
                 // Local storage stand-in: the signed token in the URL is the credential, like an S3 presigned URL.
-                .requestMatchers("/dev-storage/**", "/dev-cdn/**").permitAll()
+                .requestMatchers("/dev-storage/**", "/dev-cdn/**", "/dev-live/**").permitAll()
                 // Unverified sessions can see who they are and nothing else.
                 .requestMatchers(HttpMethod.GET, "/api/users/me").authenticated()
                 .anyRequest().hasAuthority(JwtAuthenticationFilter.FULL_SCOPE))

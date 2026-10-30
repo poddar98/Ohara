@@ -97,6 +97,8 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Out of scope:** DRM, offline downloads, per-user watermark.
 
 ## R4 — Live classes
+
+**Status (2026-10-31): slice 1 complete against a local stand-in.** It covers scheduling with host and cohort overlap constraints, per-cohort channels, ingest settings, provider stream events with a reconnect grace and a sweeper, join authorization through `ContentAccessService.offeringAccess`, playback and chat tokens, heartbeat attendance, settlement and manual overrides. **Next is slice 2:** recordings become lesson assets through the R3 pipeline, plus reminders. The IVS adapter and EventBridge intake need the AWS account (Q-04).
 - **Objective:** schedule, broadcast, join, chat, attendance, recordings into the VOD pipeline.
 - **Dependencies:** R3 (pipeline, asset model); IVS + IVS Chat enabled; playback key pair.
 - **DB:** V9 live.

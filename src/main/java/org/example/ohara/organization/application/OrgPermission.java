@@ -16,7 +16,9 @@ public enum OrgPermission {
     /** Create courses owned by the organization and edit those they teach. */
     AUTHOR_COURSES(false, OrgRole.ORG_ADMIN, OrgRole.INSTRUCTOR),
     /** Full control over every course the organization owns. */
-    MANAGE_COURSES(false, OrgRole.ORG_ADMIN);
+    MANAGE_COURSES(false, OrgRole.ORG_ADMIN),
+    /** Schedule and run live classes (instructors only for sessions they host). */
+    SCHEDULE_LIVE(false, OrgRole.ORG_ADMIN, OrgRole.INSTRUCTOR);
 
     private final boolean readOnly;
     private final Set<OrgRole> grantedTo;

@@ -89,6 +89,17 @@ public class ContentAccessService {
         return Decision.deny(denial);
     }
 
+    /**
+     * Rule 3 alone, for a whole offering rather than a lesson (live classes, cohort-wide resources): the caller's
+     * enrollment in that offering, with an active grant now and an active organization. Staff rules are the caller's.
+     */
+    @Transactional(readOnly = true)
+    public Decision offeringAccess(CurrentActor actor, UUID offeringId) {
+        return enrollments.findByUserIdAndCourseOfferingId(actor.userId(), offeringId)
+            .map(this::enrollmentAccess)
+            .orElse(Decision.deny(Reason.NOT_ENROLLED));
+    }
+
     /** Whether the enrollment grants access right now (used for lock flags and "my courses"). */
     @Transactional(readOnly = true)
     public Decision enrollmentAccess(Enrollment enrollment) {
