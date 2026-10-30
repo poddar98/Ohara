@@ -94,6 +94,12 @@ public class AssetController {
         return assets.rename(actor, assetId, request.title());
     }
 
+    @PostMapping("/api/assets/{assetId}/reprocess")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AssetResponse reprocess(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID assetId) {
+        return assets.reprocess(actor, assetId);
+    }
+
     @PostMapping("/api/assets/{assetId}/retire")
     public AssetResponse retire(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID assetId) {
         return assets.retire(actor, assetId);

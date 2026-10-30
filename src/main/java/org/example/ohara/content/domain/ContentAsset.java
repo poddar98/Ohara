@@ -106,6 +106,12 @@ public class ContentAsset {
     private String failureDetail;
 
     @Column
+    private String transcodeJobRef;
+
+    @Column(nullable = false)
+    private int transcodeAttempts;
+
+    @Column
     private Instant readyAt;
 
     @Column
@@ -155,6 +161,52 @@ public class ContentAsset {
         touch();
     }
 
+    /** Probe succeeded: start a new processing generation (new delivery paths, so players of an old one keep working). */
+    public int startProcessing(long durationMs, int width, int height, String deliveryPrefixBase) {
+        this.durationMs = durationMs;
+        this.width = width;
+        this.height = height;
+        this.processingGeneration++;
+        this.deliveryPrefix = deliveryPrefixBase + "/g" + processingGeneration + "/hls/";
+        this.transcodeJobRef = null;
+        this.transcodeAttempts = 0;
+        this.failureCode = null;
+        this.failureDetail = null;
+        this.status = Status.PROCESSING;
+        touch();
+        return processingGeneration;
+    }
+
+    public void transcodeSubmitted(String jobRef) {
+        this.transcodeJobRef = jobRef;
+        this.transcodeAttempts++;
+        touch();
+    }
+
+    /** Outputs verified: playable. */
+    public void processed(String masterPlaylistKey) {
+        this.masterPlaylistKey = masterPlaylistKey;
+        this.status = Status.READY;
+        this.readyAt = Instant.now();
+        this.failureCode = null;
+        this.failureDetail = null;
+        touch();
+    }
+
+    /** Gave up after retries. The source is kept, so an admin can reprocess without a new upload. */
+    public void failed(String code, String detail) {
+        this.status = Status.FAILED;
+        this.failureCode = code;
+        this.failureDetail = detail == null || detail.length() <= 1000 ? detail : detail.substring(0, 1000);
+        touch();
+    }
+
+    /** Queue the stored source for processing again after a failure. */
+    public void requeueForProcessing() {
+        this.status = Status.UPLOADED;
+        touch();
+    }
+
     public void cancelled() {
         this.status = Status.CANCELLED;
         touch();
@@ -198,6 +250,9 @@ public class ContentAsset {
     public Integer getHeight() { return height; }
     public int getProcessingGeneration() { return processingGeneration; }
     public String getMasterPlaylistKey() { return masterPlaylistKey; }
+    public String getDeliveryPrefix() { return deliveryPrefix; }
+    public String getTranscodeJobRef() { return transcodeJobRef; }
+    public int getTranscodeAttempts() { return transcodeAttempts; }
     public String getFailureCode() { return failureCode; }
     public String getFailureDetail() { return failureDetail; }
     public Instant getReadyAt() { return readyAt; }

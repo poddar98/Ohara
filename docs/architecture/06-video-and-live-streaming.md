@@ -108,6 +108,8 @@ Lecture video is mostly static slides/whiteboard + a talking head: it compresses
 
 ### Pipeline (diagram 7)
 
+*Built 2026-10-31 (R3 slice 2): `MEDIA_PROCESS` (probe → ladder → submit) and `MEDIA_CHECK` (poll every `ohara.media.poll-interval`, max 240 polls) jobs over the `Transcoder` port; `LocalTranscoder` writes real HLS playlists + placeholder segments; `HlsVerifier` checks master, every variant (ENDLIST, first/last segment, duration ±2 %) before READY; failed/invalid output retried up to 3 times, then FAILED with source kept; `POST /api/assets/{id}/reprocess` for FAILED videos; delivery path `delivery/org/{org}/asset/{id}/g{generation}/hls/`. Thumbnails, captions and the MediaConvert adapter (with EventBridge→SQS completion events instead of polling) are pending.*
+
 ```mermaid
 flowchart LR
   U[asset UPLOADED<br/>source_version_id] --> P[MEDIA_PROBE job<br/>container, codecs, duration, height]

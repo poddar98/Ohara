@@ -11,6 +11,7 @@ import org.example.ohara.content.api.dto.UploadResponse;
 import org.example.ohara.content.domain.ContentAsset;
 import org.example.ohara.content.domain.MediaUpload;
 import org.example.ohara.content.infrastructure.persistence.ContentAssetRepository;
+import org.example.ohara.content.infrastructure.persistence.MediaRenditionRepository;
 import org.example.ohara.content.infrastructure.persistence.MediaUploadRepository;
 import org.example.ohara.platform.jobs.JobRequest;
 import org.example.ohara.platform.jobs.JobScheduler;
@@ -61,14 +62,16 @@ public class AssetService {
     private final ObjectStorage storage;
     private final AssetAccess access;
     private final JobScheduler jobs;
+    private final MediaRenditionRepository renditions;
 
     public AssetService(ContentAssetRepository assets, MediaUploadRepository uploads, ObjectStorage storage,
-                        AssetAccess access, JobScheduler jobs) {
+                        AssetAccess access, JobScheduler jobs, MediaRenditionRepository renditions) {
         this.assets = assets;
         this.uploads = uploads;
         this.storage = storage;
         this.access = access;
         this.jobs = jobs;
+        this.renditions = renditions;
     }
 
     // --- uploads -----------------------------------------------------------------------------------
@@ -221,6 +224,24 @@ public class AssetService {
     public AssetResponse get(CurrentActor actor, UUID assetId) {
         ContentAsset asset = asset(assetId);
         access.requireRead(actor, asset);
+        List<AssetResponse.Rendition> current = asset.getType() != ContentAsset.Type.VIDEO ? null
+            : renditions.findByContentAssetIdAndProcessingGenerationOrderByHeightDesc(assetId, asset.getProcessingGeneration())
+                .stream().map(r -> new AssetResponse.Rendition(r.getHeight(), r.getWidth(), r.getBitrateKbps(), r.getSegmentCount()))
+                .toList();
+        return AssetResponse.of(asset, current);
+    }
+
+    /** Runs a FAILED video through the pipeline again from its stored source; no new upload is needed. */
+    @Transactional
+    public AssetResponse reprocess(CurrentActor actor, UUID assetId) {
+        ContentAsset asset = asset(assetId);
+        access.requireManage(actor, asset);
+        if (asset.getType() != ContentAsset.Type.VIDEO || asset.getStatus() != ContentAsset.Status.FAILED) {
+            throw new ApiException.Conflict("not_reprocessable", "Only failed videos can be reprocessed");
+        }
+        asset.requeueForProcessing();
+        jobs.enqueue(JobRequest.of(PROCESS_JOB, PROCESS_JOB + ":" + assetId + ":reprocess:" + UUID.randomUUID(),
+            new ProcessWork(assetId, asset.getSourceVersionId())).withMaxAttempts(5));
         return AssetResponse.of(asset);
     }
 
