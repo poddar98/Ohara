@@ -26,7 +26,7 @@ import java.util.UUID;
  * {@code maxAttempts}; then the run is FAILED (visible to staff, who can request it again).
  * <p>
  * Confident transcripts and their captions are published straight away (docs 07: captions auto-publish); empty or
- * low-confidence ones wait as GENERATED for staff review.
+ * low-confidence ones wait as GENERATED for staff review. A published transcript is summarized next.
  */
 @Component
 class TranscriptionPipeline {
@@ -46,6 +46,7 @@ class TranscriptionPipeline {
     private final AiStore store;
     private final SpeechToText stt;
     private final Captions captions;
+    private final GenerationPipeline generations;
     private final JobScheduler jobs;
     private final TransactionTemplate tx;
     private final JsonMapper json;
@@ -56,7 +57,8 @@ class TranscriptionPipeline {
     private final int maxPolls;
     private final int maxAttempts;
 
-    TranscriptionPipeline(AssetQueries assets, AiStore store, SpeechToText stt, Captions captions, JobScheduler jobs,
+    TranscriptionPipeline(AssetQueries assets, AiStore store, SpeechToText stt, Captions captions,
+                          GenerationPipeline generations, JobScheduler jobs,
                           TransactionTemplate tx, JsonMapper json,
                           @Value("${ohara.ai.stt.languages:en-IN,hi-IN}") List<String> languages,
                           @Value("${ohara.ai.pricing.stt-micro-usd-per-minute:24000}") long microUsdPerMinute,
@@ -68,6 +70,7 @@ class TranscriptionPipeline {
         this.store = store;
         this.stt = stt;
         this.captions = captions;
+        this.generations = generations;
         this.jobs = jobs;
         this.tx = tx;
         this.json = json;
@@ -167,6 +170,9 @@ class TranscriptionPipeline {
                 store.insertArtifact(run.assetId(), "CAPTIONS", run.sourceRef(), version, status,
                     json.writeValueAsString(Map.of("language", language, "format", "WEBVTT")), key, run.provider(), run.model(),
                     null, null, run.id());
+            }
+            if (publish) {
+                generations.transcriptApproved(run.assetId(), version);
             }
         });
         log.info("Asset {} transcribed ({} segments)", run.assetId(), result.segments().size());

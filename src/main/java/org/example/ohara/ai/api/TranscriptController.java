@@ -2,6 +2,9 @@ package org.example.ohara.ai.api;
 
 import jakarta.validation.Valid;
 import org.example.ohara.ai.api.dto.AiStatusResponse;
+import org.example.ohara.ai.api.dto.EditArtifactRequest;
+import org.example.ohara.ai.api.dto.GenerateRequest;
+import org.example.ohara.ai.api.dto.StudyResponse;
 import org.example.ohara.ai.api.dto.ReviewRequest;
 import org.example.ohara.ai.api.dto.TranscriptResponse;
 import org.example.ohara.ai.api.dto.TranscriptSearchHit;
@@ -10,6 +13,7 @@ import org.example.ohara.common.security.CurrentActor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,6 +41,11 @@ public class TranscriptController {
         return transcripts.lessonTranscript(actor, lessonId, contentId);
     }
 
+    @GetMapping("/api/lessons/{lessonId}/contents/{contentId}/study")
+    public StudyResponse study(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID lessonId, @PathVariable UUID contentId) {
+        return transcripts.study(actor, lessonId, contentId);
+    }
+
     @GetMapping("/api/enrollments/{enrollmentId}/transcripts/search")
     public List<TranscriptSearchHit> search(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID enrollmentId,
                                             @RequestParam String q, @RequestParam(defaultValue = "20") int limit) {
@@ -61,6 +70,19 @@ public class TranscriptController {
     public AiStatusResponse transcribe(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID assetId,
                                        @RequestParam(defaultValue = "false") boolean force) {
         return transcripts.requestTranscription(actor, assetId, force);
+    }
+
+    @PostMapping("/api/assets/{assetId}/ai/generate")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AiStatusResponse generate(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID assetId,
+                                     @Valid @RequestBody GenerateRequest request) {
+        return transcripts.requestGeneration(actor, assetId, request.type(), request.instructions(), Boolean.TRUE.equals(request.force()));
+    }
+
+    @PatchMapping("/api/assets/{assetId}/artifacts/{artifactId}")
+    public AiStatusResponse edit(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID assetId,
+                                 @PathVariable UUID artifactId, @Valid @RequestBody EditArtifactRequest request) {
+        return transcripts.edit(actor, assetId, artifactId, request.content());
     }
 
     @PostMapping("/api/assets/{assetId}/artifacts/{artifactId}/approve")

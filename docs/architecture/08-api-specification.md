@@ -190,6 +190,13 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
   - `POST /api/assets/{id}/ai/transcribe?force` → 202; 409 `already_transcribed`, `transcription_in_progress` or `media_not_ready`.
   - `POST /api/assets/{id}/artifacts/{artifactId}/approve|reject` `{note?}` — 409 `artifact_not_reviewable`.
 
+*Slice 2 additions:*
+- **Staff:**
+  - `POST /api/assets/{id}/ai/generate` `{type: SUMMARY|QUIZ_DRAFT|FLASHCARDS, instructions?, force?}` → 202; 409 `transcript_required`, `generation_in_progress` or `already_generated`.
+  - `PATCH /api/assets/{id}/artifacts/{artifactId}` `{content}` → 422 `invalid_content` with `problems[]`; 409 `artifact_not_editable` for transcripts and captions.
+  - `GET /api/assets/{id}/ai` now includes `generations[]`.
+- **Learners:** `GET /api/lessons/{l}/contents/{c}/study` → `{assetId, summary?, chapters[], flashcards[]}`.
+
 | Method & path | Purpose | Authz | Notes |
 |---|---|---|---|
 | `GET /api/assets/{assetId}/ai` | AI job + artifact status | staff | per type: status, version, cost |

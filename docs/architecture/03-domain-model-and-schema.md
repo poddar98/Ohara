@@ -306,7 +306,11 @@ Chat messages are **not** stored by default (IVS Chat is ephemeral). If moderati
 > - **New `transcription` table.** It records one speech-to-text run: status SUBMITTED/COMPLETED/FAILED, provider, model, job ref, attempts, language, audio seconds, cost and failure. A unique index allows only one run in flight per asset. It holds the run state and spend that the design had put in `processing_job.result`.
 > - **`lecture_artifact`.** As designed, except `transcription_id` replaces `processing_job_id`, `review_note` is added, and the `edited_*` columns are left for slice 2.
 > - **`transcript_segment`.** As designed.
-> - **Deferred to slice 2:** `lecture_chapter`.
+> - **`lecture_chapter`.** Not built: chapters are served from the approved CHAPTERS artifact's JSON. Add the table only if chapters need querying across lectures.
+>
+> **As built (V17, 2026-10-31):**
+> - **New `ai_generation` table.** It records one LLM run: task SUMMARY_CHAPTERS/QUIZ_DRAFT/FLASHCARDS, transcript and prompt version, status, provider and model, attempts, and token and cost totals including repair calls. It also keeps the staff instructions and any failure. A unique index allows only one run in flight per (asset, task).
+> - **`lecture_artifact` additions.** `generation_id`, `edited_by` and `edited_at`.
 
 ### 9.1 `transcript_segment`
 `id BIGSERIAL` (high-volume, internal); `content_asset_id FK`; `source_version_id VARCHAR(128) NOT NULL`; `transcript_version INT NOT NULL`; `seq INT`; `start_ms`, `end_ms BIGINT`; `speaker VARCHAR(32) NULL`; `text TEXT NOT NULL`; `confidence NUMERIC(4,3)`; `tsv TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', text)) STORED`. `UNIQUE (content_asset_id, transcript_version, seq)`. Indexes: `GIN (tsv)`; `(content_asset_id, transcript_version, start_ms)`. Volume: ~1 segment per 5–10 s → ~500 rows/hour of video → ~100k rows/yr. Old transcript versions retained 90 days after supersession.
@@ -394,6 +398,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V14__live_sessions ✅ (2026-10-31) | `btree_gist`; live_channel, live_session, live_attendance | Applied. Host and channel overlap exclusion constraints. |
 | V15__live_recordings ✅ (2026-10-31) | content_asset.origin, live_session_id (unique where set); live_session.recording_master_key | Applied. |
 | V16__ai_transcripts ✅ (2026-10-31) | transcription, lecture_artifact, transcript_segment (generated `tsv` + GIN) | Applied. |
+| V17__ai_generations ✅ (2026-10-31) | ai_generation; lecture_artifact.generation_id, edited_by, edited_at | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

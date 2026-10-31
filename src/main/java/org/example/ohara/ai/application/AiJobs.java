@@ -12,10 +12,13 @@ import org.springframework.context.event.EventListener;
 class AiJobs {
 
     private final TranscriptionPipeline pipeline;
+    private final GenerationPipeline generations;
     private final boolean autoTranscribe;
 
-    AiJobs(TranscriptionPipeline pipeline, @Value("${ohara.ai.auto-transcribe:true}") boolean autoTranscribe) {
+    AiJobs(TranscriptionPipeline pipeline, GenerationPipeline generations,
+           @Value("${ohara.ai.auto-transcribe:true}") boolean autoTranscribe) {
         this.pipeline = pipeline;
+        this.generations = generations;
         this.autoTranscribe = autoTranscribe;
     }
 
@@ -42,6 +45,15 @@ class AiJobs {
             public String jobType() { return TranscriptionPipeline.CHECK_JOB; }
             public Class<TranscriptionPipeline.CheckWork> payloadType() { return TranscriptionPipeline.CheckWork.class; }
             public void handle(TranscriptionPipeline.CheckWork work) { pipeline.check(work); }
+        };
+    }
+
+    @Bean
+    JobHandler<GenerationPipeline.GenerateWork> aiGenerateHandler() {
+        return new JobHandler<>() {
+            public String jobType() { return GenerationPipeline.JOB; }
+            public Class<GenerationPipeline.GenerateWork> payloadType() { return GenerationPipeline.GenerateWork.class; }
+            public void handle(GenerationPipeline.GenerateWork work) { generations.generate(work); }
         };
     }
 }

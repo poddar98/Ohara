@@ -30,7 +30,13 @@ public class AiStore {
     public record ArtifactRow(UUID id, UUID assetId, String type, String sourceRef, Integer transcriptVersion,
                               int artifactVersion, String status, String content, String objectKey, String provider,
                               String model, Integer audioSeconds, Long costMicroUsd, UUID reviewedBy, Instant reviewedAt,
-                              String reviewNote, Instant createdAt) {
+                              String reviewNote, Instant createdAt, UUID editedBy, Instant editedAt) {
+    }
+
+    public record GenerationRow(UUID id, UUID assetId, String task, int transcriptVersion, String promptVersion, String status,
+                                String provider, String model, int attempts, int inputTokens, int outputTokens,
+                                int cacheReadTokens, long costMicroUsd, String instructions, String failureCode,
+                                String failureDetail, Instant createdAt, Instant completedAt) {
     }
 
     public record SegmentRow(int seq, long startMs, long endMs, String speaker, String text, Double confidence) {
@@ -95,6 +101,69 @@ public class AiStore {
     public void markFailed(UUID id, String code, String detail) {
         jdbc.sql("UPDATE transcription SET status = 'FAILED', failure_code = :code, failure_detail = :detail, completed_at = now() WHERE id = :id")
             .param("code", code).param("detail", detail == null || detail.length() <= 1000 ? detail : detail.substring(0, 1000))
+            .param("id", id).update();
+    }
+
+    // --- generations ---------------------------------------------------------------------------------
+
+    /** Empty when a run of the task is already in flight for the asset. */
+    public Optional<UUID> insertGeneration(UUID assetId, String task, int transcriptVersion, String promptVersion, String provider,
+                                           String instructions, UUID requestedBy) {
+        UUID id = UUID.randomUUID();
+        int inserted = jdbc.sql("""
+                INSERT INTO ai_generation (id, content_asset_id, task, transcript_version, prompt_version, provider, instructions, requested_by)
+                VALUES (:id, :a, :task, :tv, :pv, :provider, :instructions, :by)
+                ON CONFLICT (content_asset_id, task) WHERE status = 'SUBMITTED' DO NOTHING""")
+            .param("id", id).param("a", assetId).param("task", task).param("tv", transcriptVersion).param("pv", promptVersion)
+            .param("provider", provider).param("instructions", instructions).param("by", requestedBy)
+            .update();
+        return inserted == 1 ? Optional.of(id) : Optional.empty();
+    }
+
+    public Optional<GenerationRow> generation(UUID id) {
+        return jdbc.sql("SELECT * FROM ai_generation WHERE id = :id FOR UPDATE").param("id", id).query(AiStore::generationRow).optional();
+    }
+
+    public Optional<GenerationRow> generationInFlight(UUID assetId, String task) {
+        return jdbc.sql("SELECT * FROM ai_generation WHERE content_asset_id = :a AND task = :t AND status = 'SUBMITTED'")
+            .param("a", assetId).param("t", task).query(AiStore::generationRow).optional();
+    }
+
+    public boolean hasCompletedGeneration(UUID assetId, String task, int transcriptVersion, String promptVersion) {
+        return jdbc.sql("""
+                SELECT count(*) FROM ai_generation WHERE content_asset_id = :a AND task = :t AND transcript_version = :tv
+                   AND prompt_version = :pv AND status = 'COMPLETED'""")
+            .param("a", assetId).param("t", task).param("tv", transcriptVersion).param("pv", promptVersion)
+            .query(Long.class).single() > 0;
+    }
+
+    /** Latest run of each task. */
+    public List<GenerationRow> latestGenerations(UUID assetId) {
+        return jdbc.sql("""
+                SELECT DISTINCT ON (task) * FROM ai_generation WHERE content_asset_id = :a ORDER BY task, created_at DESC, id""")
+            .param("a", assetId).query(AiStore::generationRow).list();
+    }
+
+    /** Adds one model call's usage. */
+    public void addUsage(UUID id, String model, int inputTokens, int outputTokens, int cacheReadTokens, long costMicroUsd) {
+        jdbc.sql("""
+                UPDATE ai_generation SET model = :model, input_tokens = input_tokens + :in, output_tokens = output_tokens + :out,
+                       cache_read_tokens = cache_read_tokens + :cache, cost_micro_usd = cost_micro_usd + :cost WHERE id = :id""")
+            .param("model", model).param("in", inputTokens).param("out", outputTokens).param("cache", cacheReadTokens)
+            .param("cost", costMicroUsd).param("id", id).update();
+    }
+
+    public void generationAttempted(UUID id) {
+        jdbc.sql("UPDATE ai_generation SET attempts = attempts + 1 WHERE id = :id").param("id", id).update();
+    }
+
+    public void generationCompleted(UUID id) {
+        jdbc.sql("UPDATE ai_generation SET status = 'COMPLETED', completed_at = now() WHERE id = :id").param("id", id).update();
+    }
+
+    public void generationFailed(UUID id, String code, String detail) {
+        jdbc.sql("UPDATE ai_generation SET status = 'FAILED', failure_code = :c, failure_detail = :d, completed_at = now() WHERE id = :id")
+            .param("c", code).param("d", detail == null || detail.length() <= 1000 ? detail : detail.substring(0, 1000))
             .param("id", id).update();
     }
 
@@ -204,6 +273,19 @@ public class AiStore {
             .param("s", status).param("by", reviewer).param("note", note).param("id", artifactId).update();
     }
 
+    public void attachGeneration(UUID artifactId, UUID generationId, String promptVersion, int inputTokens, int outputTokens) {
+        jdbc.sql("""
+                UPDATE lecture_artifact SET generation_id = :g, prompt_template_version = :pv, input_tokens = :in, output_tokens = :out
+                WHERE id = :id""")
+            .param("g", generationId).param("pv", promptVersion).param("in", inputTokens).param("out", outputTokens)
+            .param("id", artifactId).update();
+    }
+
+    public void edit(UUID artifactId, String contentJson, UUID editor) {
+        jdbc.sql("UPDATE lecture_artifact SET content = CAST(:c AS jsonb), edited_by = :by, edited_at = now() WHERE id = :id")
+            .param("c", contentJson).param("by", editor).param("id", artifactId).update();
+    }
+
     public void moveObject(UUID artifactId, String objectKey) {
         jdbc.sql("UPDATE lecture_artifact SET object_key = :k WHERE id = :id").param("k", objectKey).param("id", artifactId).update();
     }
@@ -216,13 +298,22 @@ public class AiStore {
             rs.getString("failure_detail"), instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("completed_at")));
     }
 
+    private static GenerationRow generationRow(ResultSet rs, int n) throws SQLException {
+        return new GenerationRow(rs.getObject("id", UUID.class), rs.getObject("content_asset_id", UUID.class), rs.getString("task"),
+            rs.getInt("transcript_version"), rs.getString("prompt_version"), rs.getString("status"), rs.getString("provider"),
+            rs.getString("model"), rs.getInt("attempts"), rs.getInt("input_tokens"), rs.getInt("output_tokens"),
+            rs.getInt("cache_read_tokens"), rs.getLong("cost_micro_usd"), rs.getString("instructions"), rs.getString("failure_code"),
+            rs.getString("failure_detail"), instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("completed_at")));
+    }
+
     private static ArtifactRow artifactRow(ResultSet rs, int n) throws SQLException {
         return new ArtifactRow(rs.getObject("id", UUID.class), rs.getObject("content_asset_id", UUID.class),
             rs.getString("artifact_type"), rs.getString("source_ref"), (Integer) rs.getObject("transcript_version"),
             rs.getInt("artifact_version"), rs.getString("status"), rs.getString("content"), rs.getString("object_key"),
             rs.getString("provider"), rs.getString("model"), (Integer) rs.getObject("audio_seconds"),
             (Long) rs.getObject("cost_micro_usd"), rs.getObject("reviewed_by", UUID.class), instant(rs.getTimestamp("reviewed_at")),
-            rs.getString("review_note"), instant(rs.getTimestamp("created_at")));
+            rs.getString("review_note"), instant(rs.getTimestamp("created_at")), rs.getObject("edited_by", UUID.class),
+            instant(rs.getTimestamp("edited_at")));
     }
 
     private static Instant instant(Timestamp ts) {

@@ -124,7 +124,8 @@ class TranscriptIntegrationTest {
         String status = aiStatus(s);
         assertThat(JsonPath.<String>read(status, "$.transcription.status")).isEqualTo("COMPLETED");
         assertThat(JsonPath.<Number>read(status, "$.transcription.costMicroUsd").longValue()).isPositive();
-        assertThat(JsonPath.<List<String>>read(status, "$.artifacts[*].status")).containsOnly("APPROVED").hasSize(2);
+        assertThat(JsonPath.<List<String>>read(status, "$.artifacts[?(@.type in ['TRANSCRIPT', 'CAPTIONS'])].status"))
+            .containsOnly("APPROVED").hasSize(2);
 
         transcript(s.learner(), s).andExpect(status().isOk())
             .andExpect(jsonPath("$.language").value("en-IN"))
@@ -227,5 +228,117 @@ class TranscriptIntegrationTest {
             s.org().admin(), null).andExpect(status().isNoContent());
         search(s.learner(), s, "quick sort pivot").andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
         search(other.learner(), other, "quick sort pivot").andExpect(jsonPath("$[0].assetId").value(other.assetId().toString()));
+    }
+
+    // --- LLM study material ---
+
+    private ResultActions generate(TestUser as, Setup s, String type, String instructions, boolean force) throws Exception {
+        String extra = instructions == null ? "" : ",\"instructions\":\"%s\"".formatted(instructions);
+        return fx.send(post("/api/assets/{id}/ai/generate", s.assetId()), as,
+            "{\"type\":\"%s\",\"force\":%s%s}".formatted(type, force, extra));
+    }
+
+    private ResultActions study(TestUser as, Setup s) throws Exception {
+        return fx.send(get("/api/lessons/{l}/contents/{c}/study", s.lessonId(), s.contentId()), as, null);
+    }
+
+    private String generationField(String status, String task, String field) {
+        List<Object> values = JsonPath.read(status, "$.generations[?(@.task == '%s')].%s".formatted(task, field));
+        return values.isEmpty() ? null : String.valueOf(values.getFirst());
+    }
+
+    @Test
+    void anApprovedTranscriptIsSummarizedIntoDraftsThatStaffReview() throws Exception {
+        Setup s = setup("");
+
+        String status = aiStatus(s);
+        assertThat(generationField(status, "SUMMARY_CHAPTERS", "status")).isEqualTo("COMPLETED");
+        assertThat(generationField(status, "SUMMARY_CHAPTERS", "promptVersion")).isEqualTo("summary-chapters/v1");
+        assertThat(Long.parseLong(generationField(status, "SUMMARY_CHAPTERS", "costMicroUsd"))).isPositive();
+        assertThat(JsonPath.<List<String>>read(status, "$.artifacts[?(@.type in ['SUMMARY', 'CHAPTERS'])].status"))
+            .containsExactlyInAnyOrder("GENERATED", "GENERATED");
+        study(s.learner(), s).andExpect(status().isOk())
+            .andExpect(jsonPath("$.summary").doesNotExist()).andExpect(jsonPath("$.chapters.length()").value(0));
+
+        String chaptersId = artifactId(status, "CHAPTERS");
+        fx.send(patch("/api/assets/{a}/artifacts/{id}", s.assetId(), chaptersId), s.org().admin(),
+                "{\"content\":{\"chapters\":[{\"startMs\":20000,\"title\":\"Quick sort\"},{\"startMs\":0,\"title\":\"Intro\"}]}}")
+            .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("invalid_content"))
+            .andExpect(jsonPath("$.problems[0]", containsString("time order")));
+        fx.send(patch("/api/assets/{a}/artifacts/{id}", s.assetId(), chaptersId), s.org().admin(),
+                "{\"content\":{\"chapters\":[{\"startMs\":0,\"title\":\"Intro\"},{\"startMs\":20000,\"title\":\"Quick sort\"}]}}")
+            .andExpect(status().isOk());
+        fx.send(post("/api/assets/{a}/artifacts/{id}/approve", s.assetId(), chaptersId), s.org().admin(), null).andExpect(status().isOk());
+        fx.send(post("/api/assets/{a}/artifacts/{id}/approve", s.assetId(), artifactId(status, "SUMMARY")), s.org().admin(), null)
+            .andExpect(status().isOk());
+
+        study(s.learner(), s).andExpect(status().isOk())
+            .andExpect(jsonPath("$.summary.shortSummary", containsString("sorting")))
+            .andExpect(jsonPath("$.chapters[1].title").value("Quick sort"))
+            .andExpect(jsonPath("$.flashcards.length()").value(0));
+        study(users.user(), s).andExpect(status().isNotFound());
+
+        generate(s.org().admin(), s, "SUMMARY", null, false)
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("already_generated"));
+    }
+
+    @Test
+    void quizAndFlashcardDraftsAreMadeOnRequest() throws Exception {
+        Setup s = setup("");
+
+        generate(s.learner(), s, "QUIZ_DRAFT", null, false).andExpect(status().isNotFound());
+        generate(s.org().admin(), s, "QUIZ_DRAFT", "Focus on complexity", false).andExpect(status().isAccepted());
+        generate(s.org().admin(), s, "QUIZ_DRAFT", null, false)
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("generation_in_progress"));
+        generate(s.org().admin(), s, "FLASHCARDS", null, false).andExpect(status().isAccepted());
+        jobs.drain();
+
+        String status = aiStatus(s);
+        String quiz = JsonPath.<List<String>>read(status, "$.artifacts[?(@.type == 'QUIZ_DRAFT')].content").getFirst();
+        assertThat(JsonPath.<List<Object>>read(quiz, "$.questions")).isNotEmpty();
+        assertThat(JsonPath.<Integer>read(quiz, "$.questions[0].options.length()")).isBetween(2, 6);
+        assertThat(JsonPath.<Integer>read(quiz, "$.questions[0].sourceEndMs")).isPositive();
+
+        fx.send(post("/api/assets/{a}/artifacts/{id}/approve", s.assetId(), artifactId(status, "FLASHCARDS")), s.org().admin(), null)
+            .andExpect(status().isOk());
+        fx.send(post("/api/assets/{a}/artifacts/{id}/approve", s.assetId(), artifactId(status, "QUIZ_DRAFT")), s.org().admin(), null)
+            .andExpect(status().isOk());
+        study(s.learner(), s).andExpect(jsonPath("$.flashcards.length()", greaterThan(0)))
+            .andExpect(jsonPath("$.flashcards[0].back", containsString("sorting")))
+            .andExpect(jsonPath("$.quiz").doesNotExist());
+    }
+
+    @Test
+    void invalidAnswersGetOneRepairAndRefusalsOrBrokenAnswersFail() throws Exception {
+        Setup s = setup("");
+
+        generate(s.org().admin(), s, "FLASHCARDS", "LLM_INVALID", false).andExpect(status().isAccepted());
+        generate(s.org().admin(), s, "QUIZ_DRAFT", "LLM_BROKEN", false).andExpect(status().isAccepted());
+        generate(s.org().admin(), s, "SUMMARY", "LLM_REFUSE", true).andExpect(status().isAccepted());
+        jobs.drain();
+
+        String status = aiStatus(s);
+        assertThat(generationField(status, "FLASHCARDS", "status")).isEqualTo("COMPLETED");
+        assertThat(generationField(status, "QUIZ_DRAFT", "status")).isEqualTo("FAILED");
+        assertThat(generationField(status, "QUIZ_DRAFT", "failureCode")).isEqualTo("output_invalid");
+        assertThat(generationField(status, "SUMMARY_CHAPTERS", "failureCode")).isEqualTo("llm_refused");
+        assertThat(JsonPath.<List<Object>>read(status, "$.artifacts[?(@.type == 'QUIZ_DRAFT')]")).isEmpty();
+        assertThat(JsonPath.<List<Object>>read(status, "$.artifacts[?(@.type == 'FLASHCARDS')]")).hasSize(1);
+        // The failed summary run doesn't touch the earlier summary draft.
+        assertThat(JsonPath.<List<Object>>read(status, "$.artifacts[?(@.type == 'SUMMARY')]")).hasSize(1);
+    }
+
+    @Test
+    void nothingIsGeneratedFromAnUnapprovedTranscript() throws Exception {
+        Setup s = setup("MUMBLE");
+
+        assertThat(JsonPath.<List<Object>>read(aiStatus(s), "$.generations")).isEmpty();
+        generate(s.org().admin(), s, "QUIZ_DRAFT", null, false)
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("transcript_required"));
+
+        fx.send(post("/api/assets/{a}/artifacts/{id}/approve", s.assetId(), artifactId(aiStatus(s), "TRANSCRIPT")), s.org().admin(), null)
+            .andExpect(status().isOk());
+        jobs.drain();
+        assertThat(generationField(aiStatus(s), "SUMMARY_CHAPTERS", "status")).isEqualTo("COMPLETED");
     }
 }
