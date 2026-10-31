@@ -45,6 +45,16 @@ class LocalLiveController {
         return ResponseEntity.noContent().build();
     }
 
+    /** IVS writes the recording after the stream ends; this simulates its "Recording End" event. */
+    @PostMapping("/dev-live/channels/{channelRef}/recording-end")
+    ResponseEntity<Void> recordingEnd(@PathVariable String channelRef, @RequestParam(defaultValue = "60") int seconds,
+                                      @RequestParam(defaultValue = "true") boolean complete) {
+        String masterKey = provider.writeRecording(channelRef, Math.max(1, Math.min(seconds, 6 * 3600)), complete);
+        Instant now = Instant.now();
+        events.recordingEnded(channelRef, masterKey, now.minusSeconds(seconds), now);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/dev-live/playback/{channelRef}.m3u8")
     ResponseEntity<String> playback(@PathVariable String channelRef, @RequestParam(required = false) String token) {
         if (token == null || !provider.verifyPlayback(token).map(channelRef::equals).orElse(false)) {

@@ -206,7 +206,8 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
   - `host_double_booked` and `cohort_double_booked` (409)
   - `session_not_open` (409, with `opensAt`), `session_ended`, `session_cancelled`
   - `access_expired` (403), `invalid_host`, `lesson_not_in_course`, `session_too_long`, `start_in_past` (422)
-- **Not built yet:** recording publish and retry (slice 2), `If-Match`.
+- **Slice 2 additions:** `POST /api/live-sessions/{id}/replay` → `{sessionId, assetId, masterPlaylistUrl, expiresAt}` plus CDN cookies, or 409 `recording_not_ready`. A failed recording is retried with `POST /api/assets/{id}/reprocess`. Publishing a recording uses the authoring API with `recordingAssetId`. Session responses now carry `recordingAssetId`.
+- **Not built yet:** `If-Match`.
 
 | Method & path | Purpose | Authz | Request / Response | Notes |
 |---|---|---|---|---|

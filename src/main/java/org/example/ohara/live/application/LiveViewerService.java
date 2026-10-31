@@ -2,11 +2,14 @@ package org.example.ohara.live.application;
 
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.content.application.AssetQueries;
+import org.example.ohara.content.application.CdnSigner;
 import org.example.ohara.enrollment.application.ContentAccessService;
 import org.example.ohara.enrollment.application.OfferingQueries;
 import org.example.ohara.live.api.dto.JoinResponse;
 import org.example.ohara.live.api.dto.LiveHeartbeatResponse;
 import org.example.ohara.live.api.dto.LiveSessionResponse;
+import org.example.ohara.live.api.dto.ReplayResponse;
 import org.example.ohara.live.application.LiveStreamingProvider.ChatCapability;
 import org.example.ohara.live.domain.LiveAttendance;
 import org.example.ohara.live.domain.LiveChannel;
@@ -38,6 +41,10 @@ public class LiveViewerService {
 
     enum Role { HOST, MODERATOR, VIEWER }
 
+    /** A replay grant plus the CDN cookies to set on the response. */
+    public record Replay(ReplayResponse response, List<CdnSigner.Cookie> cookies) {
+    }
+
     private final LiveSessionRepository sessions;
     private final LiveAttendanceRepository attendance;
     private final LiveLifecycle lifecycle;
@@ -46,13 +53,16 @@ public class LiveViewerService {
     private final OfferingQueries offerings;
     private final OrgAuthorizationService orgAuth;
     private final UserService users;
+    private final AssetQueries assets;
     private final Duration playbackTtl;
+    private final Duration replayTtl;
     private final Duration heartbeatInterval;
 
     public LiveViewerService(LiveSessionRepository sessions, LiveAttendanceRepository attendance, LiveLifecycle lifecycle,
                              LiveStreamingProvider provider, ContentAccessService access, OfferingQueries offerings,
-                             OrgAuthorizationService orgAuth, UserService users,
+                             OrgAuthorizationService orgAuth, UserService users, AssetQueries assets,
                              @Value("${ohara.live.playback-ttl:60m}") Duration playbackTtl,
+                             @Value("${ohara.playback.session-ttl:20m}") Duration replayTtl,
                              @Value("${ohara.live.heartbeat-interval:30s}") Duration heartbeatInterval) {
         this.sessions = sessions;
         this.attendance = attendance;
@@ -62,7 +72,9 @@ public class LiveViewerService {
         this.offerings = offerings;
         this.orgAuth = orgAuth;
         this.users = users;
+        this.assets = assets;
         this.playbackTtl = playbackTtl;
+        this.replayTtl = replayTtl;
         this.heartbeatInterval = heartbeatInterval;
     }
 
@@ -112,6 +124,25 @@ public class LiveViewerService {
         return new JoinResponse(session.getId(), session.getStatus().name(), role.name(), playback.playbackUrl(),
             playback.token(), playback.expiresAt(), channel.getChatRoomRef(), chatToken, expiresAt,
             role == Role.VIEWER ? (int) heartbeatInterval.toSeconds() : null);
+    }
+
+    /**
+     * The class recording, for the same people who could join it. Learners need current access, so a revoked learner
+     * loses replay at the next request (at most {@code replayTtl} later). Not counted as attendance.
+     */
+    @Transactional(readOnly = true)
+    public Replay replay(CurrentActor actor, UUID sessionId) {
+        LiveSession session = sessions.findById(sessionId).orElseThrow(LiveLifecycle::notFound);
+        authorize(actor, session);
+        if (session.getStatus() != LiveSession.Status.RECORDING_READY) {
+            throw new ApiException.Conflict("recording_not_ready", "The recording isn't available yet")
+                .with("sessionStatus", session.getStatus().name());
+        }
+        Instant expiresAt = Instant.now().plus(replayTtl);
+        AssetQueries.PlaybackGrant grant = assets.playback(session.getRecordingAssetId(), expiresAt)
+            .orElseThrow(() -> new ApiException.Conflict("recording_not_ready", "The recording isn't available right now"));
+        return new Replay(new ReplayResponse(session.getId(), session.getRecordingAssetId(), grant.masterPlaylistUrl(), expiresAt),
+            grant.cookies());
     }
 
     /** Credits time watched since the previous heartbeat (at most two intervals at once), only while on air. */

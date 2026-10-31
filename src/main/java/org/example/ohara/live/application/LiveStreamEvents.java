@@ -31,12 +31,13 @@ public class LiveStreamEvents {
     private final LiveSessionRepository sessions;
     private final LiveLifecycle lifecycle;
     private final LiveStreamingProvider provider;
+    private final LiveRecordings recordings;
     private final Duration streamEarly;
     private final Duration reconnectGrace;
     private final Duration maxOverrun;
 
     public LiveStreamEvents(LiveChannelRepository channels, LiveSessionRepository sessions, LiveLifecycle lifecycle,
-                            LiveStreamingProvider provider,
+                            LiveStreamingProvider provider, LiveRecordings recordings,
                             @Value("${ohara.live.stream-early:30m}") Duration streamEarly,
                             @Value("${ohara.live.reconnect-grace:10m}") Duration reconnectGrace,
                             @Value("${ohara.live.max-overrun:60m}") Duration maxOverrun) {
@@ -44,6 +45,7 @@ public class LiveStreamEvents {
         this.sessions = sessions;
         this.lifecycle = lifecycle;
         this.provider = provider;
+        this.recordings = recordings;
         this.streamEarly = streamEarly;
         this.reconnectGrace = reconnectGrace;
         this.maxOverrun = maxOverrun;
@@ -82,6 +84,30 @@ public class LiveStreamEvents {
     public void streamEnded(String channelRef, Instant at) {
         channels.findByChannelRef(channelRef).ifPresent(channel ->
             sessions.findByChannelIdAndStatus(channel.getId(), LiveSession.Status.LIVE).forEach(s -> s.streamStopped(at)));
+    }
+
+    /**
+     * The provider finished writing a recording (IVS: "Recording End", with the S3 prefix). It belongs to the session
+     * on that channel that was on air during it. Registration waits for the session to end if it hasn't yet.
+     * A second recording for the same session (a reconnect beyond the provider's merge window) is ignored for now.
+     */
+    @Transactional
+    public void recordingEnded(String channelRef, String masterKey, Instant recordingStart, Instant recordingEnd) {
+        Optional<LiveSession> owner = channels.findByChannelRef(channelRef).flatMap(channel ->
+            sessions.findByChannelIdAndStatusInOrderByScheduledStart(channel.getId(),
+                    EnumSet.of(LiveSession.Status.LIVE, LiveSession.Status.ENDED)).stream()
+                .filter(s -> s.getActualStart() != null && !s.getActualStart().isAfter(recordingEnd)
+                    && (s.getActualEnd() == null || !s.getActualEnd().isBefore(recordingStart.minus(reconnectGrace))))
+                .reduce((first, later) -> later));
+        if (owner.isEmpty()) {
+            log.warn("Recording {} on channel {} matches no session", masterKey, channelRef);
+            return;
+        }
+        if (!owner.get().recordingAvailable(masterKey)) {
+            log.warn("Session {} already has a recording; ignoring {}", owner.get().getId(), masterKey);
+            return;
+        }
+        recordings.registerIfReady(owner.get());
     }
 
     /** Ends sessions offline past the reconnect grace (at the moment they went offline) and stops overrunning ones. */

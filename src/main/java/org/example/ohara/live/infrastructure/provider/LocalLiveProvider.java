@@ -1,5 +1,6 @@
 package org.example.ohara.live.infrastructure.provider;
 
+import org.example.ohara.content.application.ObjectStorage;
 import org.example.ohara.live.application.LiveStreamingProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -30,12 +31,14 @@ public class LocalLiveProvider implements LiveStreamingProvider {
     static final String PATH = "/dev-live/";
 
     private final String baseUrl;
+    private final ObjectStorage storage;
     private final byte[] key = new byte[32];
     private final Set<String> onAir = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, Boolean> channelHd = new ConcurrentHashMap<>();
 
-    public LocalLiveProvider(@Value("${ohara.live.local.base-url:http://localhost:8080}") String baseUrl) {
+    public LocalLiveProvider(@Value("${ohara.live.local.base-url:http://localhost:8080}") String baseUrl, ObjectStorage storage) {
         this.baseUrl = baseUrl;
+        this.storage = storage;
         new SecureRandom().nextBytes(key);
     }
 
@@ -85,6 +88,34 @@ public class LocalLiveProvider implements LiveStreamingProvider {
 
     void encoderConnected(String channelRef) {
         onAir.add(channelRef);
+    }
+
+    /**
+     * Writes a recording the way IVS auto-record lays it out ({@code .../media/hls/master.m3u8} with 720p30 and 480p30
+     * renditions of 6-second segments) and returns the master key. {@code complete=false} leaves the renditions
+     * unterminated, like a recording cut off by a failure.
+     */
+    String writeRecording(String channelRef, int seconds, boolean complete) {
+        String dir = "live/" + channelRef + "/" + UUID.randomUUID() + "/media/hls/";
+        StringBuilder master = new StringBuilder("#EXTM3U\n");
+        for (int[] r : new int[][] {{1280, 720, 2_500_000}, {852, 480, 1_200_000}}) {
+            String rendition = r[1] + "p30/";
+            StringBuilder playlist = new StringBuilder("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXT-X-PLAYLIST-TYPE:EVENT\n");
+            int n = 0;
+            for (int left = seconds; left > 0; left -= 6) {
+                String segment = (++n) + ".ts";
+                playlist.append("#EXTINF:").append(Math.min(6, left)).append(".0,\n").append(segment).append('\n');
+                storage.put(dir + rendition + segment, ("rec " + segment).getBytes(StandardCharsets.UTF_8), "video/mp2t");
+            }
+            if (complete) {
+                playlist.append("#EXT-X-ENDLIST\n");
+            }
+            storage.put(dir + rendition + "playlist.m3u8", playlist.toString().getBytes(StandardCharsets.UTF_8), "application/vnd.apple.mpegurl");
+            master.append("#EXT-X-STREAM-INF:BANDWIDTH=").append(r[2]).append(",RESOLUTION=").append(r[0]).append('x').append(r[1])
+                .append('\n').append(rendition).append("playlist.m3u8\n");
+        }
+        storage.put(dir + "master.m3u8", master.toString().getBytes(StandardCharsets.UTF_8), "application/vnd.apple.mpegurl");
+        return dir + "master.m3u8";
     }
 
     boolean isOnAir(String channelRef) {

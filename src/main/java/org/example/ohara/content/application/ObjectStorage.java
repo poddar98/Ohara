@@ -52,4 +52,7 @@ public interface ObjectStorage {
     InputStream open(String key) throws IOException;
 
     void put(String key, byte[] content, String contentType);
+
+    /** Server-side copy (S3 CopyObject): the bytes never pass through the application. */
+    void copy(String fromKey, String toKey);
 }

@@ -50,11 +50,13 @@ public class LiveScheduleService {
     private final OfferingQueries offerings;
     private final CourseQueries courses;
     private final UserService users;
+    private final LiveNotifications notifications;
     private final Duration maxDuration;
 
     public LiveScheduleService(LiveSessionRepository sessions, LiveChannelRepository channels, LiveAttendanceRepository attendance,
                                LiveLifecycle lifecycle, LiveStreamingProvider provider, OrgAuthorizationService orgAuth,
                                OfferingQueries offerings, CourseQueries courses, UserService users,
+                               LiveNotifications notifications,
                                @Value("${ohara.live.max-duration:6h}") Duration maxDuration) {
         this.sessions = sessions;
         this.channels = channels;
@@ -65,6 +67,7 @@ public class LiveScheduleService {
         this.offerings = offerings;
         this.courses = courses;
         this.users = users;
+        this.notifications = notifications;
         this.maxDuration = maxDuration;
     }
 
@@ -94,7 +97,9 @@ public class LiveScheduleService {
         });
         LiveSession session = new LiveSession(orgId, offering.cohortId(), offering.id(), request.lessonId(), channel.getId(),
             request.title().strip(), host, request.scheduledStart(), request.scheduledEnd(), hd, actor.userId());
-        return lifecycle.view(saveChecked(session));
+        LiveSession saved = saveChecked(session);
+        notifications.scheduled(saved);
+        return lifecycle.view(saved);
     }
 
     @Transactional
@@ -116,9 +121,14 @@ public class LiveScheduleService {
         if (request.scheduledStart() != null || request.scheduledEnd() != null) {
             requireWindow(start, end);
         }
+        boolean moved = !start.equals(session.getScheduledStart());
         session.edit(request.title() != null ? request.title().strip() : session.getTitle(), host, lessonId, start, end,
             request.needsHd() != null ? request.needsHd() : session.isNeedsHd());
-        return lifecycle.view(saveChecked(session));
+        LiveSession saved = saveChecked(session);
+        if (moved) {
+            notifications.scheduled(saved);
+        }
+        return lifecycle.view(saved);
     }
 
     @Transactional
@@ -128,6 +138,7 @@ public class LiveScheduleService {
             throw new ApiException.Conflict("session_not_cancellable", "Only upcoming sessions can be cancelled");
         }
         session.cancel(reason.strip());
+        notifications.cancelled(session);
         return lifecycle.view(session);
     }
 

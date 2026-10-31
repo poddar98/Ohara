@@ -32,4 +32,6 @@ public interface LiveSessionRepository extends JpaRepository<LiveSession, UUID> 
     List<LiveSession> findByChannelIdAndStatusInOrderByScheduledStart(UUID channelId, Collection<LiveSession.Status> statuses);
 
     List<LiveSession> findByStatus(LiveSession.Status status);
+
+    Optional<LiveSession> findByRecordingAssetId(UUID recordingAssetId);
 }

@@ -63,15 +63,17 @@ public class AssetService {
     private final AssetAccess access;
     private final JobScheduler jobs;
     private final MediaRenditionRepository renditions;
+    private final VideoEvents events;
 
     public AssetService(ContentAssetRepository assets, MediaUploadRepository uploads, ObjectStorage storage,
-                        AssetAccess access, JobScheduler jobs, MediaRenditionRepository renditions) {
+                        AssetAccess access, JobScheduler jobs, MediaRenditionRepository renditions, VideoEvents events) {
         this.assets = assets;
         this.uploads = uploads;
         this.storage = storage;
         this.access = access;
         this.jobs = jobs;
         this.renditions = renditions;
+        this.events = events;
     }
 
     // --- uploads -----------------------------------------------------------------------------------
@@ -231,6 +233,21 @@ public class AssetService {
         return AssetResponse.of(asset, current);
     }
 
+    /**
+     * Registers a live class's recording (already stored by the live provider) as a video in the organization's library
+     * and queues it for adoption. Idempotent per session: providers report a recording at least once.
+     */
+    @Transactional
+    public UUID registerLiveRecording(UUID ownerOrganizationId, UUID liveSessionId, String title, String masterKey, UUID createdBy) {
+        return assets.findByLiveSessionId(liveSessionId).map(ContentAsset::getId).orElseGet(() -> {
+            String name = title.length() > 200 ? title.substring(0, 200) : title;
+            ContentAsset asset = assets.save(ContentAsset.liveRecording(ownerOrganizationId, liveSessionId, name, masterKey, createdBy));
+            jobs.enqueue(JobRequest.of(PROCESS_JOB, PROCESS_JOB + ":" + asset.getId() + ":recording",
+                new ProcessWork(asset.getId(), null)).withMaxAttempts(5));
+            return asset.getId();
+        });
+    }
+
     /** Runs a FAILED video through the pipeline again from its stored source; no new upload is needed. */
     @Transactional
     public AssetResponse reprocess(CurrentActor actor, UUID assetId) {
@@ -240,6 +257,7 @@ public class AssetService {
             throw new ApiException.Conflict("not_reprocessable", "Only failed videos can be reprocessed");
         }
         asset.requeueForProcessing();
+        events.reprocessing(assetId);
         jobs.enqueue(JobRequest.of(PROCESS_JOB, PROCESS_JOB + ":" + assetId + ":reprocess:" + UUID.randomUUID(),
             new ProcessWork(assetId, asset.getSourceVersionId())).withMaxAttempts(5));
         return AssetResponse.of(asset);

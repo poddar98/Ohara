@@ -74,6 +74,12 @@ public class LiveSession {
     @Column
     private String cancelledReason;
 
+    @Column
+    private String recordingMasterKey;
+
+    @Column
+    private UUID recordingAssetId;
+
     @Column(nullable = false)
     private UUID createdBy;
 
@@ -162,6 +168,37 @@ public class LiveSession {
         updatedAt = Instant.now();
     }
 
+    /** The provider finished writing the recording. The first one reported is kept. */
+    public boolean recordingAvailable(String masterKey) {
+        if (recordingMasterKey != null) {
+            return false;
+        }
+        recordingMasterKey = masterKey;
+        updatedAt = Instant.now();
+        return true;
+    }
+
+    /** Registration needs both: the class has ended, and the provider has reported its recording. */
+    public boolean isRecordingRegistrable() {
+        return status == Status.ENDED && recordingMasterKey != null && recordingAssetId == null;
+    }
+
+    public void recordingRegistered(UUID assetId) {
+        recordingAssetId = assetId;
+        status = Status.RECORDING_PROCESSING;
+        updatedAt = Instant.now();
+    }
+
+    public void recordingReady() {
+        status = Status.RECORDING_READY;
+        updatedAt = Instant.now();
+    }
+
+    public void recordingFailed() {
+        status = Status.RECORDING_FAILED;
+        updatedAt = Instant.now();
+    }
+
     /** Seconds the class was actually on air (0 if it never started). */
     public long airedSeconds() {
         if (actualStart == null || actualEnd == null || !actualEnd.isAfter(actualStart)) {
@@ -187,4 +224,6 @@ public class LiveSession {
     public Instant getStreamOfflineSince() { return streamOfflineSince; }
     public String getCancelledReason() { return cancelledReason; }
     public UUID getCreatedBy() { return createdBy; }
+    public String getRecordingMasterKey() { return recordingMasterKey; }
+    public UUID getRecordingAssetId() { return recordingAssetId; }
 }

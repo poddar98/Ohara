@@ -21,6 +21,8 @@ public interface ContentAssetRepository extends JpaRepository<ContentAsset, UUID
     Page<ContentAsset> library(@Param("orgId") UUID ownerOrganizationId, @Param("type") ContentAsset.Type type,
                                @Param("status") ContentAsset.Status status, Pageable pageable);
 
+    java.util.Optional<ContentAsset> findByLiveSessionId(UUID liveSessionId);
+
     @Query(value = "select count(*) from lesson_content where content_asset_id = :assetId", nativeQuery = true)
     long countLessonUses(@Param("assetId") UUID assetId);
 }

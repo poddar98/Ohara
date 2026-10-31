@@ -1,7 +1,11 @@
 package org.example.ohara.live.api;
 
 import com.jayway.jsonpath.JsonPath;
+import jakarta.servlet.http.Cookie;
 import org.example.ohara.live.application.LiveStreamEvents;
+import org.example.ohara.notification.application.EmailMessage;
+import org.example.ohara.notification.infrastructure.InMemoryEmailSender;
+import org.example.ohara.platform.jobs.internal.JobRunner;
 import org.example.ohara.support.CourseFixtures;
 import org.example.ohara.support.CourseFixtures.PublishedCourse;
 import org.example.ohara.support.OrgFixtures;
@@ -29,6 +33,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -48,6 +53,8 @@ class LiveSessionIntegrationTest {
     @Autowired JdbcClient jdbc;
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired LiveStreamEvents streamEvents;
+    @Autowired JobRunner jobs;
+    @Autowired InMemoryEmailSender emails;
 
     TestUsers users;
     OrgFixtures fx;
@@ -276,7 +283,7 @@ class LiveSessionIntegrationTest {
         mockMvc.perform(post("/dev-live/channels/{ref}/stream-end", channelRef(sessionId))).andExpect(status().isNoContent());
         Instant offlineSince = jdbc.sql("SELECT stream_offline_since FROM live_session WHERE id = :id").param("id", sessionId)
             .query(Timestamp.class).single().toInstant();
-        assertThat(streamEvents.sweep(Instant.now().plus(11, ChronoUnit.MINUTES))).isEqualTo(1);
+        assertThat(streamEvents.sweep(Instant.now().plus(11, ChronoUnit.MINUTES))).isPositive(); // sweeps every session in the DB
         assertThat(sessionStatus(sessionId)).isEqualTo("ENDED");
         assertThat(jdbc.sql("SELECT actual_end FROM live_session WHERE id = :id").param("id", sessionId)
             .query(Timestamp.class).single().toInstant()).isEqualTo(offlineSince);
@@ -308,5 +315,109 @@ class LiveSessionIntegrationTest {
             .andExpect(status().isNotFound());
         fx.send(put(path, s.org().id(), sessionId, s.otherLearner().id()), s.learner(), "{\"status\":\"ABSENT\"}")
             .andExpect(status().isForbidden());
+    }
+
+    private void recordingEnd(UUID sessionId, int seconds, boolean complete) throws Exception {
+        mockMvc.perform(post("/dev-live/channels/{ref}/recording-end?seconds={s}&complete={c}", channelRef(sessionId), seconds, complete))
+            .andExpect(status().isNoContent());
+    }
+
+    private UUID recordingAsset(UUID sessionId) {
+        return jdbc.sql("SELECT recording_asset_id FROM live_session WHERE id = :id").param("id", sessionId).query(UUID.class).optional().orElse(null);
+    }
+
+    @Test
+    void theRecordingBecomesAReplayableVideoWithoutTranscoding() throws Exception {
+        Setup s = setup();
+        UUID sessionId = scheduled(s, Instant.now().plus(5, ChronoUnit.MINUTES));
+        streamStart(sessionId);
+        fx.send(post("/api/orgs/{orgId}/live-sessions/{id}/end", s.org().id(), sessionId), s.instructor(), null).andExpect(status().isOk());
+        fx.send(post("/api/live-sessions/{id}/replay", sessionId), s.learner(), null)
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("recording_not_ready"));
+
+        recordingEnd(sessionId, 60, true);
+        recordingEnd(sessionId, 60, true); // a duplicate or second recording doesn't create another asset
+        assertThat(sessionStatus(sessionId)).isEqualTo("RECORDING_PROCESSING");
+        UUID assetId = recordingAsset(sessionId);
+        assertThat(jdbc.sql("SELECT count(*) FROM content_asset WHERE live_session_id = :id").param("id", sessionId)
+            .query(Long.class).single()).isEqualTo(1);
+
+        jobs.drain();
+        assertThat(sessionStatus(sessionId)).isEqualTo("RECORDING_READY");
+        assertThat(jdbc.sql("SELECT media_status || ' ' || origin || ' ' || duration_ms || ' ' || coalesce(transcode_job_ref, '-') FROM content_asset WHERE id = :id")
+            .param("id", assetId).query(String.class).single()).isEqualTo("READY LIVE_RECORDING 60000 -");
+        assertThat(jdbc.sql("SELECT count(*) FROM media_rendition WHERE content_asset_id = :id").param("id", assetId)
+            .query(Long.class).single()).isEqualTo(2);
+        fx.send(get("/api/orgs/{orgId}/live-sessions/{id}", s.org().id(), sessionId), s.org().admin(), null)
+            .andExpect(jsonPath("$.recordingAssetId").value(assetId.toString()));
+
+        var replay = fx.send(post("/api/live-sessions/{id}/replay", sessionId), s.learner(), null).andExpect(status().isOk())
+            .andExpect(jsonPath("$.assetId").value(assetId.toString())).andReturn();
+        Cookie cookie = replay.getResponse().getCookie("OHARA-DEV-CDN");
+        String master = JsonPath.read(replay.getResponse().getContentAsString(), "$.masterPlaylistUrl");
+        String base = master.substring(0, master.lastIndexOf('/') + 1);
+        mockMvc.perform(get(URI.create(master)).cookie(cookie)).andExpect(status().isOk())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(containsString("720p/index.m3u8")));
+        mockMvc.perform(get(URI.create(base + "480p/index.m3u8")).cookie(cookie)).andExpect(status().isOk());
+        mockMvc.perform(get(URI.create(base + "720p/10.ts")).cookie(cookie)).andExpect(status().isOk());
+
+        fx.send(post("/api/live-sessions/{id}/replay", sessionId), users.user(), null).andExpect(status().isNotFound());
+        fx.send(delete("/api/orgs/{orgId}/cohorts/{cohortId}/members/{userId}", s.org().id(), s.cohortId(), s.learner().id()),
+            s.org().admin(), null).andExpect(status().isNoContent());
+        fx.send(post("/api/live-sessions/{id}/replay", sessionId), s.learner(), null)
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("access_expired"));
+    }
+
+    @Test
+    void aRecordingReportedMidClassWaitsForTheEndAndAFailedOneCanBeRetried() throws Exception {
+        Setup s = setup();
+        UUID sessionId = scheduled(s, Instant.now().plus(5, ChronoUnit.MINUTES));
+        streamStart(sessionId);
+        mockMvc.perform(post("/dev-live/channels/{ref}/stream-end", channelRef(sessionId))).andExpect(status().isNoContent());
+        recordingEnd(sessionId, 30, false); // cut off: renditions never terminated
+        assertThat(sessionStatus(sessionId)).isEqualTo("LIVE");
+        assertThat(recordingAsset(sessionId)).isNull();
+
+        fx.send(post("/api/orgs/{orgId}/live-sessions/{id}/end", s.org().id(), sessionId), s.instructor(), null)
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RECORDING_PROCESSING"));
+        jobs.drain();
+        assertThat(sessionStatus(sessionId)).isEqualTo("RECORDING_FAILED");
+        UUID assetId = recordingAsset(sessionId);
+        assertThat(jdbc.sql("SELECT failure_code FROM content_asset WHERE id = :id").param("id", assetId).query(String.class).single())
+            .isEqualTo("recording_unusable");
+
+        fx.send(post("/api/assets/{id}/reprocess", assetId), s.org().admin(), null).andExpect(status().isAccepted());
+        assertThat(sessionStatus(sessionId)).isEqualTo("RECORDING_PROCESSING");
+        jobs.drain();
+        assertThat(sessionStatus(sessionId)).isEqualTo("RECORDING_FAILED");
+    }
+
+    @Test
+    void learnersAreRemindedAndToldAboutCancellations() throws Exception {
+        Setup s = setup();
+        UUID soon = scheduled(s, Instant.now().plus(10, ChronoUnit.MINUTES));
+        jobs.drain();
+        assertThat(emails.lastSentTo(s.learner().email())).map(EmailMessage::subject).contains("Starting soon: Sorting live");
+        assertThat(emails.lastSentTo(s.otherLearner().email())).map(EmailMessage::subject).contains("Starting soon: Sorting live");
+        assertThat(emails.sentTo(s.instructor().email())).isEmpty();
+
+        // Far-off classes are reminded later; moving one closer reminds now.
+        Instant later = Instant.now().plus(3, ChronoUnit.DAYS);
+        UUID moved = scheduled(s, later);
+        fx.send(post("/api/orgs/{orgId}/live-sessions/{id}/cancel", s.org().id(), soon), s.instructor(), "{\"reason\":\"Instructor unwell\"}")
+            .andExpect(status().isOk());
+        jobs.drain();
+        EmailMessage cancelled = emails.lastSentTo(s.learner().email()).orElseThrow();
+        assertThat(cancelled.subject()).isEqualTo("Cancelled: Sorting live");
+        assertThat(cancelled.body()).contains("Instructor unwell");
+        int before = emails.sentTo(s.learner().email()).size();
+
+        Instant newStart = Instant.now().plus(20, ChronoUnit.MINUTES);
+        fx.send(patch("/api/orgs/{orgId}/live-sessions/{id}", s.org().id(), moved), s.instructor(),
+                "{\"title\":\"Moved up\",\"scheduledStart\":\"%s\",\"scheduledEnd\":\"%s\"}".formatted(newStart, newStart.plus(1, ChronoUnit.HOURS)))
+            .andExpect(status().isOk());
+        jobs.drain();
+        assertThat(emails.sentTo(s.learner().email())).hasSize(before + 1);
+        assertThat(emails.lastSentTo(s.learner().email())).map(EmailMessage::subject).contains("Starting soon: Moved up");
     }
 }

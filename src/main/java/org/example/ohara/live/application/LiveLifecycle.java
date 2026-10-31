@@ -24,11 +24,12 @@ class LiveLifecycle {
     private final LiveAttendanceRepository attendance;
     private final OfferingQueries offerings;
     private final LiveStreamingProvider provider;
+    private final LiveRecordings recordings;
     private final Duration joinEarly;
     private final double presentRatio;
 
     LiveLifecycle(LiveSessionRepository sessions, LiveChannelRepository channels, LiveAttendanceRepository attendance,
-                  OfferingQueries offerings, LiveStreamingProvider provider,
+                  OfferingQueries offerings, LiveStreamingProvider provider, LiveRecordings recordings,
                   @Value("${ohara.live.join-early:15m}") Duration joinEarly,
                   @Value("${ohara.live.present-ratio:0.75}") double presentRatio) {
         this.sessions = sessions;
@@ -36,13 +37,15 @@ class LiveLifecycle {
         this.attendance = attendance;
         this.offerings = offerings;
         this.provider = provider;
+        this.recordings = recordings;
         this.joinEarly = joinEarly;
         this.presentRatio = presentRatio;
     }
 
     /**
      * Ends the class at {@code at}. Every learner with access to the offering gets an attendance row (ABSENT if they
-     * never joined) and a status from the time they were credited against the time the class was on air.
+     * never joined) and a status from the time they were credited against the time the class was on air. If the
+     * provider already reported the recording, it's registered now.
      */
     void end(LiveSession session, Instant at, boolean stopEncoder) {
         if (stopEncoder) {
@@ -54,6 +57,7 @@ class LiveLifecycle {
         }
         long aired = session.airedSeconds();
         attendance.findBySessionIdOrderByUserId(session.getId()).forEach(row -> row.decide(aired, presentRatio));
+        recordings.registerIfReady(session);
         sessions.save(session);
     }
 
@@ -68,7 +72,7 @@ class LiveLifecycle {
     LiveSessionResponse view(LiveSession s) {
         return new LiveSessionResponse(s.getId(), s.getOrganizationId(), s.getCohortId(), s.getOfferingId(), s.getLessonId(),
             s.getTitle(), s.getHostUserId(), s.getScheduledStart(), s.getScheduledEnd(), joinOpensAt(s), s.getStatus().name(),
-            s.isNeedsHd(), s.getActualStart(), s.getActualEnd(), s.getCancelledReason());
+            s.isNeedsHd(), s.getActualStart(), s.getActualEnd(), s.getCancelledReason(), s.getRecordingAssetId());
     }
 
     static ApiException notFound() {

@@ -161,6 +161,17 @@ public class LocalObjectStorage implements ObjectStorage {
         }
     }
 
+    @Override
+    public void copy(String fromKey, String toKey) {
+        try {
+            Path target = objectPath(toKey);
+            Files.createDirectories(target.getParent());
+            Files.copy(objectPath(fromKey), target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     // --- used by LocalStorageController ------------------------------------------------------------
 
     /** Stores one uploaded part from a verified PUT_PART token; returns its ETag. */

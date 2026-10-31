@@ -36,6 +36,9 @@ public class ContentAsset {
     /** Drives the video ladder: slides and talking heads don't need 1080p. */
     public enum ContentProfile { TALKING_HEAD, SLIDES, SCREEN_DETAIL }
 
+    /** UPLOAD: a file sent by staff. LIVE_RECORDING: a live class's recording (already HLS; adopted, not transcoded). */
+    public enum Origin { UPLOAD, LIVE_RECORDING }
+
     /** States in which an asset may be attached to a lesson. */
     public static final Set<Status> ATTACHABLE = EnumSet.of(Status.PENDING_UPLOAD, Status.UPLOADED, Status.PROCESSING,
         Status.READY, Status.FAILED);
@@ -57,6 +60,13 @@ public class ContentAsset {
     @Enumerated(EnumType.STRING)
     @Column(name = "media_status", nullable = false)
     private Status status = Status.PENDING_UPLOAD;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Origin origin = Origin.UPLOAD;
+
+    @Column(name = "live_session_id")
+    private UUID liveSessionId;
 
     @Column
     private String originalFilename;
@@ -154,6 +164,18 @@ public class ContentAsset {
         touch();
     }
 
+    /** A live class's recording, stored by the live provider at {@code masterKey}; queued for adoption. */
+    public static ContentAsset liveRecording(UUID ownerOrganizationId, UUID liveSessionId, String title, String masterKey,
+                                             UUID createdBy) {
+        ContentAsset asset = new ContentAsset(ownerOrganizationId, Type.VIDEO, title, null, "application/vnd.apple.mpegurl",
+            ContentProfile.SLIDES, createdBy);
+        asset.origin = Origin.LIVE_RECORDING;
+        asset.liveSessionId = liveSessionId;
+        asset.sourceObjectKey = masterKey;
+        asset.status = Status.UPLOADED;
+        return asset;
+    }
+
     /** Files that need no processing are usable as soon as they're stored. */
     public void readyAsIs() {
         this.status = Status.READY;
@@ -229,6 +251,9 @@ public class ContentAsset {
         this.title = newTitle;
         touch();
     }
+
+    public Origin getOrigin() { return origin; }
+    public UUID getLiveSessionId() { return liveSessionId; }
 
     private void touch() {
         this.updatedAt = Instant.now();

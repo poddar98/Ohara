@@ -37,6 +37,8 @@ class MediaPipeline {
     private final MediaRenditionRepository renditions;
     private final Transcoder transcoder;
     private final HlsVerifier verifier;
+    private final RecordingAdopter adopter;
+    private final VideoEvents events;
     private final JobScheduler jobs;
     private final TransactionTemplate tx;
     private final Duration pollInterval;
@@ -44,7 +46,7 @@ class MediaPipeline {
     private final int maxAttempts;
 
     MediaPipeline(ContentAssetRepository assets, MediaRenditionRepository renditions, Transcoder transcoder,
-                  HlsVerifier verifier, JobScheduler jobs, TransactionTemplate tx,
+                  HlsVerifier verifier, RecordingAdopter adopter, VideoEvents events, JobScheduler jobs, TransactionTemplate tx,
                   @Value("${ohara.media.poll-interval:30s}") Duration pollInterval,
                   @Value("${ohara.media.max-polls:240}") int maxPolls,
                   @Value("${ohara.media.max-transcode-attempts:3}") int maxAttempts) {
@@ -52,6 +54,8 @@ class MediaPipeline {
         this.renditions = renditions;
         this.transcoder = transcoder;
         this.verifier = verifier;
+        this.adopter = adopter;
+        this.events = events;
         this.jobs = jobs;
         this.tx = tx;
         this.pollInterval = pollInterval;
@@ -65,14 +69,37 @@ class MediaPipeline {
         if (asset == null || asset.getType() != ContentAsset.Type.VIDEO || asset.getStatus() != ContentAsset.Status.UPLOADED) {
             return;
         }
+        if (asset.getOrigin() == ContentAsset.Origin.LIVE_RECORDING) {
+            adopt(asset);
+            return;
+        }
         Transcoder.MediaInfo info = transcoder.probe(asset.getSourceObjectKey());
         if (!info.valid()) {
-            tx.executeWithoutResult(s -> assets.findById(assetId).ifPresent(a -> a.rejected("unsupported_media", info.reason())));
+            tx.executeWithoutResult(s -> assets.findById(assetId).ifPresent(a -> {
+                a.rejected("unsupported_media", info.reason());
+                events.failed(assetId, "unsupported_media");
+            }));
             return;
         }
         int generation = tx.execute(s -> assets.findById(assetId).orElseThrow()
             .startProcessing(info.durationMs(), info.width(), info.height(), deliveryBase(asset)));
         submit(assetId, generation);
+    }
+
+    /** Live recordings: copy the provider's renditions into place instead of transcoding, then verify as usual. */
+    private void adopt(ContentAsset asset) {
+        RecordingAdopter.Recording recording;
+        try {
+            recording = adopter.inspect(asset.getSourceObjectKey());
+        } catch (RecordingAdopter.UnusableRecordingException ex) {
+            fail(asset.getId(), "recording_unusable", ex.getMessage());
+            return;
+        }
+        int generation = tx.execute(s -> assets.findById(asset.getId()).orElseThrow()
+            .startProcessing(recording.durationMs(), recording.width(), recording.height(), deliveryBase(asset)));
+        ContentAsset processing = assets.findById(asset.getId()).orElseThrow();
+        adopter.adopt(recording, processing.getDeliveryPrefix());
+        finish(processing, generation, recording.renditions().size(), false);
     }
 
     /** MEDIA_CHECK: polls the transcode; verifies and finishes, schedules another poll, or retries. */
@@ -92,17 +119,20 @@ class MediaPipeline {
                 }
             }
             case FAILED -> retryOrFail(asset, "transcode_failed", status.failure());
-            case COMPLETE -> finish(asset, work.generation());
+            case COMPLETE -> finish(asset, work.generation(), ladderFor(asset).size(), true);
         }
     }
 
-    private void finish(ContentAsset asset, int generation) {
-        List<Ladder.Rung> ladder = ladderFor(asset);
+    private void finish(ContentAsset asset, int generation, int expectedVariants, boolean retryable) {
         List<HlsVerifier.Variant> verified;
         try {
-            verified = verifier.verify(asset.getDeliveryPrefix(), asset.getDurationMs(), ladder.size());
+            verified = verifier.verify(asset.getDeliveryPrefix(), asset.getDurationMs(), expectedVariants);
         } catch (HlsVerifier.VerificationException ex) {
-            retryOrFail(asset, "output_invalid", ex.getMessage());
+            if (retryable) {
+                retryOrFail(asset, "output_invalid", ex.getMessage());
+            } else {
+                fail(asset.getId(), "output_invalid", ex.getMessage());
+            }
             return;
         }
         tx.executeWithoutResult(s -> {
@@ -115,6 +145,7 @@ class MediaPipeline {
                     v.playlistKey(), v.segmentCount()));
             }
             current.processed(current.getDeliveryPrefix() + "master.m3u8");
+            events.ready(current.getId());
         });
         log.info("Asset {} READY (generation {}, {} variants)", asset.getId(), generation, verified.size());
     }
@@ -125,8 +156,15 @@ class MediaPipeline {
             submit(asset.getId(), asset.getProcessingGeneration());
         } else {
             log.error("Asset {} failed after {} transcode attempts ({}): {}", asset.getId(), asset.getTranscodeAttempts(), code, detail);
-            tx.executeWithoutResult(s -> assets.findById(asset.getId()).ifPresent(a -> a.failed(code, detail)));
+            fail(asset.getId(), code, detail);
         }
+    }
+
+    private void fail(UUID assetId, String code, String detail) {
+        tx.executeWithoutResult(s -> assets.findById(assetId).ifPresent(a -> {
+            a.failed(code, detail);
+            events.failed(assetId, code);
+        }));
     }
 
     private void submit(UUID assetId, int generation) {
