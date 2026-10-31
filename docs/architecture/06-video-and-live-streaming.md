@@ -159,6 +159,18 @@ flowchart LR
 
 ## 6. Playback authorization (diagram 9)
 
+> **As built (AWS adapters, CloudFront, 2026-10-31):**
+> - **Selecting it.** `CloudFrontCdnSigner` is selected with `ohara.cdn.provider=cloudfront`.
+> - **Configuration:**
+>   - `ohara.cdn.cloudfront.domain` (the media host);
+>   - `key-pair-id` (the public key's id in the distribution's trusted key group);
+>   - the signing key as a PKCS#8 PEM from `private-key-path` (a file mounted from Secrets Manager) or `private-key`. It's loaded at startup; PKCS#1 is rejected with the conversion command.
+>   - `ohara.cdn.cookie-domain` (e.g. `.example.in`, shared by the API and media hosts).
+> - **Cookies.** Each grant is a custom policy for `https://<media>/<video prefix>*` until the session expiry, with SHA1withRSA, CloudFront's default. Cookies are Secure, HttpOnly and SameSite=Lax, with Path set to the video prefix, so several videos' cookies coexist. Tests verify the policy and signature with the public key exactly as CloudFront does.
+> - **Still to do with the account:**
+>   - the distribution: OAC to the delivery bucket, the key group, and a CORS response-headers policy allowing the app origin with credentials for hls.js `withCredentials`;
+>   - confirming cookie behaviour on iOS/Android players (Q-11).
+
 *Built 2026-10-31 (R3 slice 3, `media` module): `POST /api/playback/sessions {lessonId, contentId}` runs the learner lesson check (ContentAccessService), requires a READY video, records a `playback_session`, and sets signed cookies scoped to the asset's generation prefix via the `CdnSigner` port; expiry = min(20 min, end of the learner's access); `POST …/{id}/refresh` re-checks access. `LocalCdn` + `/dev-cdn/**` stand in for CloudFront (policy = HMAC(prefix, expiry)); immutable caching for segments, 5-minute for playlists. CloudFront key-group signing arrives with the AWS account.*
 
 Three distinct checks:
