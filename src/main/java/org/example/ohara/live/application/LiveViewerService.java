@@ -1,5 +1,6 @@
 package org.example.ohara.live.application;
 
+import org.example.ohara.ai.application.AiQueries;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.content.application.AssetQueries;
@@ -54,13 +55,14 @@ public class LiveViewerService {
     private final OrgAuthorizationService orgAuth;
     private final UserService users;
     private final AssetQueries assets;
+    private final AiQueries ai;
     private final Duration playbackTtl;
     private final Duration replayTtl;
     private final Duration heartbeatInterval;
 
     public LiveViewerService(LiveSessionRepository sessions, LiveAttendanceRepository attendance, LiveLifecycle lifecycle,
                              LiveStreamingProvider provider, ContentAccessService access, OfferingQueries offerings,
-                             OrgAuthorizationService orgAuth, UserService users, AssetQueries assets,
+                             OrgAuthorizationService orgAuth, UserService users, AssetQueries assets, AiQueries ai,
                              @Value("${ohara.live.playback-ttl:60m}") Duration playbackTtl,
                              @Value("${ohara.playback.session-ttl:20m}") Duration replayTtl,
                              @Value("${ohara.live.heartbeat-interval:30s}") Duration heartbeatInterval) {
@@ -73,6 +75,7 @@ public class LiveViewerService {
         this.orgAuth = orgAuth;
         this.users = users;
         this.assets = assets;
+        this.ai = ai;
         this.playbackTtl = playbackTtl;
         this.replayTtl = replayTtl;
         this.heartbeatInterval = heartbeatInterval;
@@ -141,7 +144,8 @@ public class LiveViewerService {
         Instant expiresAt = Instant.now().plus(replayTtl);
         AssetQueries.PlaybackGrant grant = assets.playback(session.getRecordingAssetId(), expiresAt)
             .orElseThrow(() -> new ApiException.Conflict("recording_not_ready", "The recording isn't available right now"));
-        return new Replay(new ReplayResponse(session.getId(), session.getRecordingAssetId(), grant.masterPlaylistUrl(), expiresAt),
+        return new Replay(new ReplayResponse(session.getId(), session.getRecordingAssetId(), grant.masterPlaylistUrl(), expiresAt,
+                ai.captions(session.getRecordingAssetId()).stream().map(c -> new ReplayResponse.Caption(c.language(), c.url())).toList()),
             grant.cookies());
     }
 

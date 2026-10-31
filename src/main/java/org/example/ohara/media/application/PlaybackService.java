@@ -1,5 +1,6 @@
 package org.example.ohara.media.application;
 
+import org.example.ohara.ai.application.AiQueries;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.content.application.AssetQueries;
@@ -33,15 +34,17 @@ public class PlaybackService {
     private final LearnerService learner;
     private final AssetQueries assets;
     private final PlaybackSessionRepository sessions;
+    private final AiQueries ai;
     private final Duration ttl;
     private final Duration refreshMargin;
 
-    public PlaybackService(LearnerService learner, AssetQueries assets, PlaybackSessionRepository sessions,
+    public PlaybackService(LearnerService learner, AssetQueries assets, PlaybackSessionRepository sessions, AiQueries ai,
                            @Value("${ohara.playback.session-ttl:20m}") Duration ttl,
                            @Value("${ohara.playback.refresh-margin:5m}") Duration refreshMargin) {
         this.learner = learner;
         this.assets = assets;
         this.sessions = sessions;
+        this.ai = ai;
         this.ttl = ttl;
         this.refreshMargin = refreshMargin;
     }
@@ -97,6 +100,8 @@ public class PlaybackService {
             refreshAt = Instant.now();
         }
         return new Issued(new PlaybackResponse(session.getId(), grant.masterPlaylistUrl(), session.getExpiresAt(), refreshAt,
-            lesson.resumePositionMs(), lesson.enrollmentId(), lesson.lessonKey()), grant.cookies());
+            lesson.resumePositionMs(), lesson.enrollmentId(), lesson.lessonKey(),
+            ai.captions(session.getAssetId()).stream().map(c -> new PlaybackResponse.Caption(c.language(), c.url())).toList()),
+            grant.cookies());
     }
 }

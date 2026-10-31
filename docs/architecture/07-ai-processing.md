@@ -2,6 +2,17 @@
 
 Status: **Proposed** · 2026-10-21 · All AI integrations are **proposed additions**. Tables: 03 §9–10.
 
+> **As built (R5 slice 1, 2026-10-31), `ai` module, against a local speech-to-text stand-in:**
+> - **Port.** The `SpeechToText` port is shaped like Transcribe batch jobs: submit, poll, timed segments. `LocalSpeechToText` returns a canned lecture and recognises the failure markers FAIL_STT, SILENT and MUMBLE.
+> - **Trigger.** A `VideoEvents.Ready` listener queues `AI_TRANSCRIBE` in the same transaction that marks the asset READY. Polling runs as `AI_TRANSCRIBE_CHECK` jobs, with up to 3 provider attempts.
+> - **No double spend.** A source already transcribed (same `source_ref`) is never sent again: a replayed READY only re-places the captions. Staff can force a new transcript version, and the old one is SUPERSEDED.
+> - **Cost.** Recorded per run as `ohara.ai.pricing.stt-micro-usd-per-minute` (default $0.024/min, conservative until the ap-south-1 price is confirmed).
+> - **Publishing.** A confident transcript (average confidence ≥ `ohara.ai.stt.min-confidence`, default 0.6) and its WebVTT captions are APPROVED automatically. An empty or low-confidence one waits as GENERATED for staff approve/reject. This is a global setting; the per-org setting (Q-16) is not built yet.
+> - **Captions.** Stored inside the video's current HLS delivery path, so the playback cookies cover them, and returned as `captions[]` from playback and live replay as sidecar tracks. They are not in the master playlist yet: iOS native players need that, while hls.js and video.js load sidecars. After a reprocess they are copied to the new path.
+> - **Search.** Postgres FTS (`websearch_to_tsquery`, `ts_headline`) over approved transcripts, restricted to the videos the learner may open in that enrollment (`LearnerService.openVideos`). The SQL needs an allowed-asset list; nothing can search all assets.
+> - **Limitation.** For live recordings the provider is given the HLS master. Real Transcribe needs an audio file, so the AWS adapter must add an audio-only output (MediaConvert for uploads, an audio rendition or extract for recordings).
+> - **Deferred:** summaries, chapters and quiz drafts (`LlmClient`, slice 2), Q&A (5b), and budgets.
+
 ## 1. Principles
 
 1. **Failure isolation:** media `READY` never waits for AI. AI work starts *after* `AssetReady`, runs as separate `processing_job`s, and its failure only affects AI artifacts.

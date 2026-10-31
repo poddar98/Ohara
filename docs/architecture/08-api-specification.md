@@ -179,6 +179,17 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 
 ## 7. AI administration & Q&A
 
+*As built (R5 slice 1, 2026-10-31):*
+- **Learners:**
+  - `GET /api/lessons/{lessonId}/contents/{contentId}/transcript` — approved only, with the same access check as the lesson; 404 `transcript_not_available`.
+  - `GET /api/enrollments/{enrollmentId}/transcripts/search?q&limit` → `[{lessonId, lessonTitle, contentId, assetId, startMs, endMs, snippet}]` — 400 `invalid_query` outside 2–200 chars.
+  - Playback and replay responses gain `captions[{language, url}]`.
+- **Staff** (asset library rules):
+  - `GET /api/assets/{id}/ai` — latest run plus all artifacts.
+  - `GET /api/assets/{id}/transcript?version`
+  - `POST /api/assets/{id}/ai/transcribe?force` → 202; 409 `already_transcribed`, `transcription_in_progress` or `media_not_ready`.
+  - `POST /api/assets/{id}/artifacts/{artifactId}/approve|reject` `{note?}` — 409 `artifact_not_reviewable`.
+
 | Method & path | Purpose | Authz | Notes |
 |---|---|---|---|
 | `GET /api/assets/{assetId}/ai` | AI job + artifact status | staff | per type: status, version, cost |

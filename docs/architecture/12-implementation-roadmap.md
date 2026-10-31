@@ -116,6 +116,8 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Out of scope:** two-way video, breakout rooms, polls (can ride chat later).
 
 ## R5 — AI learning features
+
+**Status (2026-10-31): slice 1 complete against a local stand-in.** It covers automatic transcription of every READY video and recording (idempotent per source, retries, cost recorded), versioned transcripts, WebVTT captions in playback, review of low-confidence output, and full-text transcript search limited to what the learner may open. **Next is slice 2:** the `LlmClient` port, summaries, chapters and on-demand quiz/flashcard drafts with the review workflow. Then 5b, Q&A. Real STT and LLM adapters wait on the AWS account and the provider decision (Q-04, Q-15).
 - **Objective:** transcripts, captions, summaries, chapters, searchable transcripts, quiz/flashcard drafts with review; Q&A after evaluation.
 - **Dependencies:** R3 (`AssetReady`), STT benchmark done (Q-15), LLM provider agreement.
 - **DB:** V10 ai (+ `ai_qa_log` in 5b).

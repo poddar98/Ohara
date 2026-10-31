@@ -269,6 +269,7 @@ public class ContentAsset {
     public ContentProfile getContentProfile() { return contentProfile; }
     public String getSourceObjectKey() { return sourceObjectKey; }
     public String getSourceVersionId() { return sourceVersionId; }
+    public String getSourceSha256() { return sourceSha256; }
     public Long getSourceBytes() { return sourceBytes; }
     public Long getDurationMs() { return durationMs; }
     public Integer getWidth() { return width; }
