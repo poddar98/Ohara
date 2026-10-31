@@ -12,8 +12,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * With the AWS providers selected, the application runs on S3 and CloudFront, and the local stand-ins (with their
- * /dev-storage and /dev-cdn endpoints) are gone.
+ * With the AWS providers selected, the application runs on S3, CloudFront and IVS, and the local stand-ins (with
+ * their /dev-storage, /dev-cdn and /dev-live endpoints) are gone. (The SQS event poller only runs on job workers.)
  */
 @SpringBootTest(properties = {
     "ohara.storage.provider=s3",
@@ -25,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
     "ohara.cdn.provider=cloudfront",
     "ohara.cdn.cloudfront.domain=media.example.in",
     "ohara.cdn.cloudfront.key-pair-id=K2JCJMDEHXQW5F",
-    "ohara.cdn.cookie-domain=.example.in"})
+    "ohara.cdn.cookie-domain=.example.in",
+    "ohara.live.provider=ivs",
+    "ohara.live.ivs.recording-configuration-arn=arn:aws:ivs:ap-south-1:123456789012:recording-configuration/Rec1"})
 class AwsWiringTest {
 
     @DynamicPropertySource
@@ -36,10 +38,16 @@ class AwsWiringTest {
             + java.util.Base64.getEncoder().encodeToString(generator.generateKeyPair().getPrivate().getEncoded())
             + "\n-----END PRIVATE KEY-----";
         registry.add("ohara.cdn.cloudfront.private-key", () -> pem);
+        var ec = java.security.KeyPairGenerator.getInstance("EC");
+        ec.initialize(new java.security.spec.ECGenParameterSpec("secp384r1"));
+        String playbackPem = "-----BEGIN PRIVATE KEY-----\n"
+            + java.util.Base64.getEncoder().encodeToString(ec.generateKeyPair().getPrivate().getEncoded()) + "\n-----END PRIVATE KEY-----";
+        registry.add("ohara.live.ivs.playback-key", () -> playbackPem);
     }
 
     @Autowired ObjectStorage storage;
     @Autowired CdnSigner cdn;
+    @Autowired org.example.ohara.live.application.LiveStreamingProvider live;
     @Autowired ApplicationContext context;
 
     @Test
@@ -48,6 +56,13 @@ class AwsWiringTest {
         assertThat(((S3ObjectStorage) storage).bucketOf("delivery/org/x/master.m3u8")).isEqualTo("ohara-delivery");
         assertThat(((S3ObjectStorage) storage).bucketOf("org/x/asset/y/source/a.mp4")).isEqualTo("ohara-source");
         assertThat(context.getBeanNamesForType(org.example.ohara.content.infrastructure.storage.LocalObjectStorage.class)).isEmpty();
+    }
+
+    @Test
+    void ivsReplacesTheLocalLiveProvider() {
+        assertThat(live).isInstanceOf(org.example.ohara.live.infrastructure.ivs.IvsLiveProvider.class);
+        assertThat(live.name()).isEqualTo("IVS");
+        assertThat(context.getBeanNamesForType(org.example.ohara.live.infrastructure.provider.LocalLiveProvider.class)).isEmpty();
     }
 
     @Test

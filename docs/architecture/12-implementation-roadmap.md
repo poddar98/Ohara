@@ -134,8 +134,12 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 
 ## AWS adapters (in progress, 2026-10-31)
 Real-provider implementations behind the existing ports, each selected by configuration, with the local stand-ins remaining the default.
-- **Done:** S3 `ObjectStorage` (tested against LocalStack), CloudFront `CdnSigner` (signed cookies, verified cryptographically), MediaConvert `Transcoder` (probe, job, status).
-- **Next:** IVS `LiveStreamingProvider` and the EventBridge→SQS intake for media and IVS events, Transcribe `SpeechToText`. Then the LLM adapter once Q-15 is decided.
+- **Done:**
+  - S3 `ObjectStorage`, tested against LocalStack;
+  - CloudFront `CdnSigner`, signed cookies verified cryptographically;
+  - MediaConvert `Transcoder`: probe, job and status;
+  - IVS `LiveStreamingProvider` with the EventBridge→SQS event intake for IVS.
+- **Next:** Transcribe `SpeechToText`. Optionally, MediaConvert completion events through the same intake instead of polling. Then the LLM adapter once Q-15 is decided.
 - **Then, with the account (Q-04):** IaC, a dev-account smoke test and the benchmarks.
 
 ## R6 — Scale, cost and operational hardening

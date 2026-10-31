@@ -251,6 +251,28 @@ Instructor → up to 500 learners per cohort; chat / moderated Q&A rather than t
 CloudFront alone is **not** a live solution: it has no ingest/transcode. IVS owns ingest, transcoding, distribution and chat transport; Ohara owns scheduling, authorization, attendance and the recording's afterlife.
 
 ### 7.3 Channel model
+
+> **As built (AWS adapters, IVS, 2026-10-31):**
+> - **Selecting it.** `IvsLiveProvider` is selected with `ohara.live.provider=ivs`.
+> - **Channels.** Private (`authorized`), low-latency and recorded through `ohara.live.ivs.recording-configuration-arn`. Type ADVANCED_SD by default and STANDARD for HD sessions (`sd-/hd-channel-type`). One IVS Chat room per channel.
+> - **Keys and tokens:**
+>   - stream keys are read from IVS when the host asks;
+>   - playback tokens are ES384 JWTs (`aws:channel-arn`, `aws:viewer-id`, optional `aws:access-control-allow-origin`, `exp`) signed with a P-384 PKCS#8 key from `playback-key-path`/`playback-key`, whose public half is imported as an IVS playback key pair;
+>   - chat tokens carry the role's capabilities, with sessions capped at IVS Chat's 180 min.
+> - **Stopping a stream** that isn't broadcasting is a no-op.
+> - **Events.** EventBridge rules for `aws.ivs` "IVS Stream State Change" and "IVS Recording State Change" send to the SQS queue `ohara.live.ivs.events-queue-url`.
+> - **Event polling.** Job workers long-poll it on a virtual thread (`SqsEventPoller`):
+>   - Stream Start → `streamStarted`; a broadcast no session accounts for is stopped;
+>   - Stream End → `streamEnded`;
+>   - Recording End → `recordingEnded` with `<recording_s3_key_prefix>/media/hls/master.m3u8`, and start = end − duration.
+>
+>   Recordings must be in the source bucket. A message is deleted only after handling; failures reappear after the visibility timeout and go to the DLQ by the redrive policy.
+> - **Tests.** Provider calls with mocked clients; the playback JWT is verified with the public key. The event intake runs through a real SQS queue (LocalStack).
+> - **Still to do with the account:**
+>   - the recording configuration (bucket = source bucket, reconnect window ~300 s to merge short drops);
+>   - the EventBridge rules, queue and DLQ;
+>   - the playback key pair;
+>   - an OBS → IVS dev run.
 - Pool of **one IVS channel per cohort** (10 channels), created on first schedule and reused; channel type **Advanced SD** by default (renditions up to 480p, $0.50/h input, cheaper SD output) with **Standard** (up to 1080p ABR) for sessions flagged `needs_hd` (code walkthroughs). Private channels (`authorized=true`) — viewers need a playback token.
 - Stream key per channel stored only in IVS / Secrets Manager; shown to the host on demand (`GET /api/live-sessions/{id}/ingest`), rotated after each session.
 - One IVS Chat room per cohort channel.
