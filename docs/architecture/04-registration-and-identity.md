@@ -160,7 +160,7 @@ They pay the contract team offline; the contract team grants the B2C offering to
 > - **Differences from the design below:**
 >   - bulk-import rows are scrubbed rather than deleted, so import totals stay right;
 >   - removing the last org admin is allowed for a deletion, and platform admins appoint a replacement;
->   - queued email jobs may still hold the address until job retention purges them.
+>   - the person's email jobs (queued or sent) are deleted during anonymization, and all email jobs are purged 7 days after finishing anyway (03 §10.1).
 `POST /api/users/me/deletion-request` → `DEACTIVATED` + scheduled `ACCOUNT_ANONYMIZE` job at +30 days (cancel by reactivating). Anonymization:
 - Scrub: email → `deleted+{id}@invalid`, `user_profile` names → "Deleted user", phone/avatar null, revoke tokens, delete credentials and `one_time_token`s, withdraw consents, delete pending invitations to that email.
 - Keep: `users` row (status ANONYMIZED), access grants with their contract/bank references (finance reconciliation), enrollments/progress/attendance (aggregate reporting; tied to the anonymised id), audit events (with actor id only).

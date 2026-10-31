@@ -20,4 +20,9 @@ class DefaultJobScheduler implements JobScheduler {
     public boolean enqueue(JobRequest request) {
         return store.insert(request, jsonMapper.writeValueAsString(request.payload()));
     }
+
+    @Override
+    public int discard(String jobType, String payloadField, String value) {
+        return store.discard(jobType, payloadField, value);
+    }
 }

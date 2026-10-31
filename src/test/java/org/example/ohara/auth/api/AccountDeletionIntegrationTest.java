@@ -128,6 +128,8 @@ class AccountDeletionIntegrationTest {
         assertThat(jdbc.sql("SELECT count(*) FROM invitation WHERE lower(email) = lower(:e)").param("e", learner.email())
             .query(Long.class).single()).isZero();
         assertThat(auditActions(learner.id())).containsSubsequence("ACCOUNT_DELETION_REQUESTED", "ACCOUNT_ANONYMIZED");
+        assertThat(jdbc.sql("SELECT count(*) FROM processing_job WHERE job_type = 'EMAIL_SEND' AND lower(payload ->> 'to') = lower(:e)")
+            .param("e", learner.email()).query(Long.class).single()).isZero(); // no copies of their emails left behind
 
         // The address is free again: the person can start over with a new account.
         mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(

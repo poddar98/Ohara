@@ -341,6 +341,12 @@ Chat messages are **not** stored by default (IVS Chat is ephemeral). If moderati
 - **Columns:** `id UUID PK`; `job_type VARCHAR(48) NOT NULL` (e.g. `MEDIA_PROBE`, `MEDIA_TRANSCODE`, `MEDIA_VERIFY`, `AI_TRANSCRIBE`, `AI_SUMMARIZE`, `AI_CHAPTERS`, `AI_QUIZ`, `BULK_IMPORT`, `EMAIL_SEND`, `LIVE_RECORDING_INGEST`); `subject_type VARCHAR(32)`, `subject_id UUID`; `idempotency_key VARCHAR(200) NOT NULL UNIQUE` (e.g. `AI_SUMMARIZE:{asset}:{source_version}:{prompt_v}`); `status CHECK IN ('PENDING','RUNNING','WAITING_EXTERNAL','SUCCEEDED','FAILED','DEAD','CANCELLED')`; `priority SMALLINT DEFAULT 5`; `attempt INT NOT NULL DEFAULT 0`; `max_attempts INT NOT NULL DEFAULT 5`; `run_after TIMESTAMPTZ NOT NULL DEFAULT now()`; `locked_by VARCHAR(64)`, `lease_until TIMESTAMPTZ`; `external_ref VARCHAR(256)` (MediaConvert job id, STT job id); `payload JSONB`; `result JSONB`; `last_error_code`, `last_error VARCHAR(2000)`; `parent_job_id UUID NULL`; `created_at`, `updated_at`, `finished_at`.
 - **Indexes:** `ix_job_ready ON processing_job (priority, run_after) WHERE status='PENDING'` (claim query); `(status, lease_until) WHERE status='RUNNING'` (lease-expiry recovery); `(subject_type, subject_id)`; `(external_ref) WHERE external_ref IS NOT NULL` (map provider callbacks).
 - **Retention:** succeeded jobs purged after 30 days (aggregate metrics retained); DEAD kept 180 days.
+  > **As built (R6, 2026-10-31):** `JobRetention` runs hourly on workers, deleting in batches of 1,000:
+  > - SUCCEEDED jobs after 30 days;
+  > - FAILED, DEAD and CANCELLED jobs after 180 days;
+  > - **EMAIL_SEND jobs in any finished state after 7 days**, because their payload holds the address and message. Configured by `ohara.jobs.retention.*`.
+  >
+  > Pending and running jobs are never purged. Freed idempotency keys are safe because handlers check state. On account anonymization, the person's email jobs are deleted at once (`JobScheduler.discard`), except one that's mid-send.
 
 ### 10.2 `event_publication`
 Created/managed by Spring Modulith's JDBC event publication registry (`spring-modulith-starter-jdbc`) — transactional outbox for module events. Completed publications purged after 7 days.

@@ -161,6 +161,32 @@ class JobStore {
             .update();
     }
 
+    int discard(String jobType, String payloadField, String value) {
+        return jdbc.sql("""
+                DELETE FROM processing_job
+                WHERE job_type = :type AND status <> 'RUNNING' AND lower(payload ->> :field) = lower(:value)""")
+            .param("type", jobType).param("field", payloadField).param("value", value)
+            .update();
+    }
+
+    /**
+     * Deletes up to {@code batch} finished jobs: succeeded ones finished before {@code succeededBefore} (email jobs,
+     * which carry addresses and bodies, before {@code emailBefore}), failed, dead and cancelled ones before
+     * {@code failedBefore}. Small batches keep each delete short; the caller loops.
+     */
+    int purgeFinished(Instant succeededBefore, Instant emailBefore, Instant failedBefore, int batch) {
+        return jdbc.sql("""
+                DELETE FROM processing_job WHERE id IN (
+                    SELECT id FROM processing_job
+                    WHERE (status = 'SUCCEEDED' AND finished_at < :succeeded)
+                       OR (job_type = 'EMAIL_SEND' AND status IN ('SUCCEEDED', 'FAILED', 'DEAD', 'CANCELLED') AND finished_at < :email)
+                       OR (status IN ('FAILED', 'DEAD', 'CANCELLED') AND finished_at < :failed)
+                    LIMIT :batch)""")
+            .param("succeeded", Timestamp.from(succeededBefore)).param("email", Timestamp.from(emailBefore))
+            .param("failed", Timestamp.from(failedBefore)).param("batch", batch)
+            .update();
+    }
+
     private static final String SELECT = """
             SELECT id, job_type, idempotency_key, status, attempt, max_attempts, payload::text AS payload,
                    last_error, run_after, created_at, finished_at

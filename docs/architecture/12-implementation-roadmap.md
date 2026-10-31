@@ -145,7 +145,7 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 
 **Remaining:**
 - **Needs AWS:** dashboards and alert rules in the monitoring stack, load tests, DR drill, pentest, autoscaling and the provider adapters.
-- **Can be done in code now:** job-table retention purge, and mandatory `If-Match` once the frontend is ready. The infrastructure work (load tests, DR drill, pentest, autoscaling) needs the AWS environment.
+- **Can be done in code now:** mandatory `If-Match` once the frontend is ready. The job-table retention purge is done (2026-10-31). The infrastructure work (load tests, DR drill, pentest, autoscaling) needs the AWS environment.
 - **Objective:** confidence at 5k B2B + 5k B2C with predictable cost.
 - **Tasks:** dashboards & alerts (09 §8); cost attribution job (11 §8); autoscaling policies; S3 lifecycle verification; CDN cache-hit tuning; load tests (playback session creation 200 rps, heartbeats 300 rps, live join burst 500 in 60 s, staff bulk grant of 2,000 rows); tenant-isolation suite expanded to all endpoints; DR drill (RDS PITR restore, SQS redrive, worker crash); security review + external pentest; virtual-thread vs platform-thread experiment (09 §7); evaluate RLS (ADR-002) and Kafka trigger (ADR-008).
 - **Acceptance criteria:** SLOs met under load (API p95 < 300 ms for non-provider calls; playback session p95 < 200 ms); restore drill RPO ≤ 5 min / RTO ≤ 1 h; zero high/critical pentest findings open; monthly cost within ±20% of the 11 model for observed usage.

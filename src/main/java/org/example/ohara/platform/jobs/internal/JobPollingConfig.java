@@ -18,10 +18,12 @@ class JobPollingConfig {
 
         private final JobRunner runner;
         private final JobQueueMetrics metrics;
+        private final JobRetention retention;
 
-        Polling(JobRunner runner, JobQueueMetrics metrics) {
+        Polling(JobRunner runner, JobQueueMetrics metrics, JobRetention retention) {
             this.runner = runner;
             this.metrics = metrics;
+            this.retention = retention;
         }
 
         @Scheduled(fixedDelayString = "${ohara.jobs.poll-interval:1s}")
@@ -32,6 +34,11 @@ class JobPollingConfig {
         @Scheduled(fixedDelayString = "${ohara.jobs.metrics-interval:30s}")
         void queueMetrics() {
             metrics.refresh();
+        }
+
+        @Scheduled(fixedDelayString = "${ohara.jobs.purge-interval:1h}", initialDelayString = "10m")
+        void purge() {
+            retention.purge();
         }
     }
 }
