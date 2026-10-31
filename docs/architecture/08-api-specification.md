@@ -252,6 +252,10 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
 
 ## 9. Operations
 
+*As built (R6 slice 1, 2026-10-31):*
+- `GET /api/orgs/{orgId}/audit` and `GET /api/admin/audit` (adds `organizationId`), with filters `?actorUserId&action&resourceType&resourceId&from&to&page&size`.
+- Response: `PageResponse<{id, occurredAt, actorUserId, actorType, organizationId, action, resourceType, resourceId, ipHash, details{}}>`, newest first.
+
 | Method & path | Purpose | Authz |
 |---|---|---|
 | `GET /api/health` **[exists]**, `/actuator/health`, `/actuator/info` **[exists]** | Liveness/readiness | public (health details restricted) |

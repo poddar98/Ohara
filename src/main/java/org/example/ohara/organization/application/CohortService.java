@@ -1,5 +1,6 @@
 package org.example.ohara.organization.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.organization.api.dto.AddCohortMembersResponse;
@@ -35,10 +36,12 @@ public class CohortService {
     private final OrganizationMembershipRepository memberships;
     private final OrgAuthorizationService authorization;
     private final CohortPlacementEvents events;
+    private final AuditLog audit;
 
     public CohortService(CohortRepository cohorts, CohortMembershipRepository cohortMemberships,
                          OrganizationMembershipRepository memberships, OrgAuthorizationService authorization,
-                         CohortPlacementEvents events) {
+                         CohortPlacementEvents events, AuditLog audit) {
+        this.audit = audit;
         this.cohorts = cohorts;
         this.cohortMemberships = cohortMemberships;
         this.memberships = memberships;
@@ -145,6 +148,8 @@ public class CohortService {
         CohortMembership placement = cohortMemberships.findOpen(cohortId, userId).orElseThrow(CohortService::cohortMemberNotFound);
         placement.end(CohortMembership.Status.REMOVED);
         events.ended(placement);
+        audit.record(actor.userId(), organizationId, "COHORT_MEMBER_REMOVED", "COHORT_PLACEMENT", placement.getId(),
+            AuditLog.details("cohortId", cohortId, "userId", userId));
     }
 
     @Transactional
@@ -165,6 +170,8 @@ public class CohortService {
         events.ended(current);
         CohortMembership moved = cohortMemberships.save(new CohortMembership(target, current.getUser()));
         events.started(moved);
+        audit.record(actor.userId(), organizationId, "COHORT_MEMBER_TRANSFERRED", "COHORT_PLACEMENT", moved.getId(),
+            AuditLog.details("fromCohortId", cohortId, "toCohortId", toCohortId, "userId", userId));
         return CohortMemberResponse.of(moved);
     }
 

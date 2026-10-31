@@ -1,5 +1,6 @@
 package org.example.ohara.course.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.common.web.PageResponse;
@@ -36,10 +37,12 @@ public class CourseService {
     private final CourseInstructorRepository instructors;
     private final CourseAccess access;
     private final OrgAuthorizationService orgAuthorization;
+    private final AuditLog audit;
     private final UserService userService;
 
     public CourseService(CourseRepository courses, CourseVersionRepository versions, CourseInstructorRepository instructors,
-                         CourseAccess access, OrgAuthorizationService orgAuthorization, UserService userService) {
+                         CourseAccess access, OrgAuthorizationService orgAuthorization, UserService userService, AuditLog audit) {
+        this.audit = audit;
         this.courses = courses;
         this.versions = versions;
         this.instructors = instructors;
@@ -120,6 +123,7 @@ public class CourseService {
         Course course = course(courseId);
         access.require(actor, course, StaffRole.OWNER);
         course.retire();
+        audit.record(actor.userId(), course.getOwnerOrganizationId(), "COURSE_RETIRED", "COURSE", course.getId(), null);
         return response(course);
     }
 

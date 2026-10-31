@@ -1,5 +1,6 @@
 package org.example.ohara.organization.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.auth.application.AccountProvisioning;
 import org.example.ohara.auth.application.IssuedTokens;
 import org.example.ohara.auth.application.SecretTokens;
@@ -50,10 +51,12 @@ public class InvitationService {
     private final AccountProvisioning accounts;
     private final UserService userService;
     private final ConsentService consentService;
+    private final AuditLog audit;
 
     public InvitationService(InvitationRepository invitations, OrganizationRepository organizations, CohortRepository cohorts,
                              OrgAuthorizationService authorization, MembershipGrants grants, InvitationEmails emails,
-                             AccountProvisioning accounts, UserService userService, ConsentService consentService) {
+                             AccountProvisioning accounts, UserService userService, ConsentService consentService, AuditLog audit) {
+        this.audit = audit;
         this.invitations = invitations;
         this.organizations = organizations;
         this.cohorts = cohorts;
@@ -111,6 +114,8 @@ public class InvitationService {
             created = true;
         }
         emails.invitation(email, organization(organizationId).getName(), role, rawToken, tokenHash, expiresAt);
+        audit.record(invitedBy, organizationId, created ? "INVITATION_SENT" : "INVITATION_REISSUED", "INVITATION", invitation.getId(),
+            AuditLog.details("role", role.name(), "cohortId", cohortId));
         return new InviteResult(InvitationResponse.of(invitation), created);
     }
 
@@ -155,6 +160,7 @@ public class InvitationService {
         }
         if (invitation.getStatus() != Invitation.Status.REVOKED) {
             invitation.revoke(Instant.now());
+            audit.record(actor.userId(), organizationId, "INVITATION_REVOKED", "INVITATION", invitation.getId(), null);
         }
         return InvitationResponse.of(invitation);
     }
@@ -235,6 +241,8 @@ public class InvitationService {
             placed = cohorts.findById(invitation.getCohortId()).map(c -> grants.place(c, user)).orElse(false);
         }
         invitation.accept(user.getId(), Instant.now());
+        audit.record(user.getId(), invitation.getOrganizationId(), "INVITATION_ACCEPTED", "INVITATION", invitation.getId(),
+            AuditLog.details("role", invitation.getRole().name(), "cohortId", invitation.getCohortId(), "placed", placed));
         return new AcceptResult(invitation.getOrganizationId(), membership, invitation.getCohortId(), placed, session);
     }
 

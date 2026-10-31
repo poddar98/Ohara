@@ -1,5 +1,6 @@
 package org.example.ohara.course.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.course.api.dto.ContentRequest;
@@ -34,9 +35,11 @@ public class CurriculumService {
     private final CourseRepository courses;
     private final CourseVersionRepository versions;
     private final CourseAccess access;
+    private final AuditLog audit;
     private final AssetQueries assets;
 
-    public CurriculumService(CourseRepository courses, CourseVersionRepository versions, CourseAccess access, AssetQueries assets) {
+    public CurriculumService(CourseRepository courses, CourseVersionRepository versions, CourseAccess access, AssetQueries assets, AuditLog audit) {
+        this.audit = audit;
         this.courses = courses;
         this.versions = versions;
         this.access = access;
@@ -109,6 +112,8 @@ public class CurriculumService {
         }
         draft.publish(actor.userId(), changeNotes);
         course.published(draft.getId());
+        audit.record(actor.userId(), course.getOwnerOrganizationId(), "COURSE_PUBLISHED", "COURSE_VERSION", draft.getId(),
+            AuditLog.details("courseId", course.getId(), "versionNumber", draft.getVersionNumber()));
         return VersionTree.of(draft);
     }
 
@@ -125,6 +130,8 @@ public class CurriculumService {
             throw new ApiException.Conflict("current_version", "The current version can't be archived");
         }
         version.archive();
+        audit.record(actor.userId(), course.getOwnerOrganizationId(), "COURSE_VERSION_ARCHIVED", "COURSE_VERSION", version.getId(),
+            AuditLog.details("courseId", course.getId(), "versionNumber", version.getVersionNumber()));
         return VersionSummary.of(version);
     }
 

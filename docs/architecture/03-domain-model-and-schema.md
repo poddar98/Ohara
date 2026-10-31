@@ -349,6 +349,10 @@ Created/managed by Spring Modulith's JDBC event publication registry (`spring-mo
 `key VARCHAR(64)`, `actor_user_id UUID`, `endpoint VARCHAR(128)`, `request_hash CHAR(64)`, `response_status INT`, `response_body JSONB`, `created_at`, `expires_at`. PK `(actor_user_id, endpoint, key)`. For `Idempotency-Key` on POSTs that create money/access/upload side effects (08 §1.5). TTL 24 h.
 
 ### 10.4 `audit_event`
+> **As built (V19, 2026-10-31):**
+> - **Columns.** As designed. `ip_hash` is the first 32 hex characters of an HMAC-SHA256 keyed by `ohara.audit.ip-hash-key`, and `user_agent` is cut to 256 characters.
+> - **Append-only.** Enforced by triggers on UPDATE, DELETE and TRUNCATE rather than grants, because the app and migrations share one DB role for now. With separate roles in production, the app role also gets no UPDATE/DELETE grants.
+> - **Retention.** The 2-year retention and partitioning come later. A purge must drop partitions, which the triggers allow.
 `id BIGSERIAL`; `occurred_at TIMESTAMPTZ`; `actor_user_id UUID NULL`; `actor_type CHECK IN ('USER','SYSTEM')`; `organization_id UUID NULL`; `action VARCHAR(64)` (e.g. `ENROLLMENT_REVOKED`, `ROLE_GRANTED`, `COURSE_PUBLISHED`, `ACCESS_DENIED_CROSS_TENANT`); `resource_type`, `resource_id`; `ip_hash`, `user_agent`; `details JSONB`. Indexes `(organization_id, occurred_at DESC)`, `(resource_type, resource_id)`. Append-only (no UPDATE/DELETE grants for the app role). Monthly range partitioning once > ~10M rows. Retention 2 years (configurable).
 
 ---
@@ -405,6 +409,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V16__ai_transcripts ✅ (2026-10-31) | transcription, lecture_artifact, transcript_segment (generated `tsv` + GIN) | Applied. |
 | V17__ai_generations ✅ (2026-10-31) | ai_generation; lecture_artifact.generation_id, edited_by, edited_at | Applied. |
 | V18__ai_qa_log ✅ (2026-10-31) | ai_qa_log | Applied. |
+| V19__audit_event ✅ (2026-10-31) | audit_event + append-only triggers (UPDATE/DELETE/TRUNCATE rejected) | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

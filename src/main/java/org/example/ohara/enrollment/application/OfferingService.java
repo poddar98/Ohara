@@ -1,5 +1,6 @@
 package org.example.ohara.enrollment.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.course.application.CourseQueries;
@@ -48,11 +49,13 @@ public class OfferingService {
     private final CourseQueries courses;
     private final OrgAuthorizationService orgAuthorization;
     private final OrganizationQueries organizations;
+    private final AuditLog audit;
     private final UserService users;
 
     public OfferingService(CourseOfferingRepository offerings, EnrollmentRepository enrollments, AccessGrantRepository grants,
                            EnrollmentCore core, CourseQueries courses, OrgAuthorizationService orgAuthorization,
-                           OrganizationQueries organizations, UserService users) {
+                           OrganizationQueries organizations, UserService users, AuditLog audit) {
+        this.audit = audit;
         this.offerings = offerings;
         this.enrollments = enrollments;
         this.grants = grants;
@@ -134,14 +137,17 @@ public class OfferingService {
     @Transactional
     public OfferingResponse openForOrganization(CurrentActor actor, UUID organizationId, UUID offeringId) {
         orgAuthorization.require(actor, organizationId, OrgPermission.MANAGE_COURSES);
-        return open(orgOffering(organizationId, offeringId));
+        return open(actor, orgOffering(organizationId, offeringId));
     }
 
     @Transactional
     public OfferingResponse closeForOrganization(CurrentActor actor, UUID organizationId, UUID offeringId) {
         orgAuthorization.require(actor, organizationId, OrgPermission.MANAGE_COURSES);
         CourseOffering offering = orgOffering(organizationId, offeringId);
-        offering.close();
+        if (offering.getStatus() != CourseOffering.Status.CLOSED) {
+            offering.close();
+            audit.record(actor.userId(), organizationId, "OFFERING_CLOSED", "OFFERING", offering.getId(), null);
+        }
         return response(offering);
     }
 
@@ -159,9 +165,13 @@ public class OfferingService {
             .filter(e -> organizationId.equals(e.getOrganizationId()))
             .orElseThrow(() -> new ApiException.NotFound("enrollment_not_found", "Enrollment not found"));
         Instant now = Instant.now();
-        grants.findByEnrollmentIdOrderByCreatedAt(enrollment.getId()).stream()
-            .filter(g -> g.isLive(now))
-            .forEach(g -> core.revoke(g, AccessGrant.RevokedReason.ADMIN, actor.userId()));
+        List<AccessGrant> live = grants.findByEnrollmentIdOrderByCreatedAt(enrollment.getId()).stream()
+            .filter(g -> g.isLive(now)).toList();
+        live.forEach(g -> core.revoke(g, AccessGrant.RevokedReason.ADMIN, actor.userId()));
+        if (!live.isEmpty()) {
+            audit.record(actor.userId(), organizationId, "ACCESS_REVOKED", "ENROLLMENT", enrollment.getId(), AuditLog.details(
+                "learnerUserId", enrollment.getUserId(), "offeringId", enrollment.getCourseOfferingId(), "grants", live.size()));
+        }
     }
 
     // --- B2C -------------------------------------------------------------------------------------
@@ -189,14 +199,17 @@ public class OfferingService {
     @Transactional
     public OfferingResponse openB2C(CurrentActor actor, UUID offeringId) {
         requirePlatformAdmin(actor);
-        return open(b2cOffering(offeringId));
+        return open(actor, b2cOffering(offeringId));
     }
 
     @Transactional
     public OfferingResponse closeB2C(CurrentActor actor, UUID offeringId) {
         requirePlatformAdmin(actor);
         CourseOffering offering = b2cOffering(offeringId);
-        offering.close();
+        if (offering.getStatus() != CourseOffering.Status.CLOSED) {
+            offering.close();
+            audit.record(actor.userId(), null, "OFFERING_CLOSED", "OFFERING", offering.getId(), null);
+        }
         return response(offering);
     }
 
@@ -209,12 +222,14 @@ public class OfferingService {
     // --- shared ----------------------------------------------------------------------------------
 
     /** Opening needs a version to enroll into; for a cohort offering it enrolls everyone currently placed. */
-    private OfferingResponse open(CourseOffering offering) {
+    private OfferingResponse open(CurrentActor actor, CourseOffering offering) {
         if (offering.isOpen()) {
             return response(offering);
         }
         core.versionFor(offering);
         offering.open();
+        audit.record(actor.userId(), offering.getOrganizationId(), "OFFERING_OPENED", "OFFERING", offering.getId(),
+            AuditLog.details("courseId", offering.getCourseId(), "cohortId", offering.getCohortId()));
         if (offering.getCohortId() != null) {
             Instant now = Instant.now();
             for (var placement : organizations.openPlacements(offering.getCohortId())) {

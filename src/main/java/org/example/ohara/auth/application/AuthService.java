@@ -1,5 +1,6 @@
 package org.example.ohara.auth.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.auth.api.dto.LoginRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
 import org.example.ohara.auth.domain.AuthIdentity;
@@ -37,6 +38,7 @@ public class AuthService {
     private final TokenIssuer tokenIssuer;
     private final AccountRecoveryService accountRecoveryService;
     private final AuthEmails emails;
+    private final AuditLog audit;
     private final ConsentService consentService;
 
     public AuthService(
@@ -49,7 +51,8 @@ public class AuthService {
             TokenIssuer tokenIssuer,
             AccountRecoveryService accountRecoveryService,
             AuthEmails emails,
-            ConsentService consentService) {
+            ConsentService consentService, AuditLog audit) {
+        this.audit = audit;
         this.userService = userService;
         this.accountProvisioning = accountProvisioning;
         this.passwordCredentialRepository = passwordCredentialRepository;
@@ -96,7 +99,12 @@ public class AuthService {
         try {
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, request.password()));
         } catch (BadCredentialsException ex) {
-            credential.ifPresent(c -> c.recordFailedLogin(now));
+            credential.ifPresent(c -> {
+                if (c.recordFailedLogin(now)) {
+                    audit.record(null, null, "ACCOUNT_LOCKED", "USER", c.getAuthIdentity().getUser().getId(),
+                        AuditLog.details("failedAttempts", c.getFailedAttempts(), "lockedUntil", c.getLockedUntil()));
+                }
+            });
             throw ex;
         }
 
@@ -126,6 +134,8 @@ public class AuthService {
         User user = stored.getUser();
         if (stored.isRevoked()) {
             tokenIssuer.revokeAllSessions(user, now);
+            audit.record(null, null, "REFRESH_TOKEN_REUSED", "USER", user.getId(),
+                AuditLog.details("tokenId", stored.getId(), "action", "all sessions revoked"));
             throw new ApiException.Unauthenticated("refresh_token_reused", "Refresh token has been revoked");
         }
         if (stored.isExpired(now)) {

@@ -1,5 +1,6 @@
 package org.example.ohara.live.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.course.application.CourseQueries;
@@ -52,12 +53,14 @@ public class LiveScheduleService {
     private final UserService users;
     private final LiveNotifications notifications;
     private final Duration maxDuration;
+    private final AuditLog audit;
 
     public LiveScheduleService(LiveSessionRepository sessions, LiveChannelRepository channels, LiveAttendanceRepository attendance,
                                LiveLifecycle lifecycle, LiveStreamingProvider provider, OrgAuthorizationService orgAuth,
                                OfferingQueries offerings, CourseQueries courses, UserService users,
                                LiveNotifications notifications,
-                               @Value("${ohara.live.max-duration:6h}") Duration maxDuration) {
+                               @Value("${ohara.live.max-duration:6h}") Duration maxDuration, AuditLog audit) {
+        this.audit = audit;
         this.sessions = sessions;
         this.channels = channels;
         this.attendance = attendance;
@@ -139,6 +142,8 @@ public class LiveScheduleService {
         }
         session.cancel(reason.strip());
         notifications.cancelled(session);
+        audit.record(actor.userId(), orgId, "LIVE_SESSION_CANCELLED", "LIVE_SESSION", sessionId,
+            AuditLog.details("reason", session.getCancelledReason()));
         return lifecycle.view(session);
     }
 
@@ -171,6 +176,8 @@ public class LiveScheduleService {
             channel.typeChanged(session.isNeedsHd());
         }
         session.prepared();
+        audit.record(actor.userId(), orgId, "LIVE_INGEST_KEY_VIEWED", "LIVE_SESSION", sessionId,
+            AuditLog.details("channelId", channel.getId()));
         return new IngestResponse(channel.getIngestEndpoint(), provider.streamKey(channel.getChannelRef()),
             channel.isHd() ? "STANDARD" : "BASIC");
     }
@@ -205,7 +212,10 @@ public class LiveScheduleService {
         }
         LiveAttendance row = attendance.findForUpdate(session.getId(), userId)
             .orElseThrow(() -> new ApiException.NotFound("attendee_not_found", "No attendance record for this user"));
+        String previous = row.getStatus() == null ? null : row.getStatus().name();
         row.override(LiveAttendance.Status.valueOf(request.status()), request.note());
+        audit.record(actor.userId(), orgId, "LIVE_ATTENDANCE_OVERRIDDEN", "LIVE_SESSION", sessionId,
+            AuditLog.details("userId", userId, "from", previous, "to", request.status()));
         return row(row, users.findById(userId).orElse(null));
     }
 

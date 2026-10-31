@@ -72,12 +72,15 @@ public class PasswordCredential {
     }
 
     /** Every 5th consecutive failure locks the credential: 15, 30, then 60 minutes. */
-    public void recordFailedLogin(Instant now) {
+    /** Counts a failed attempt; every fifth locks the account for a while. Returns true when this attempt locked it. */
+    public boolean recordFailedLogin(Instant now) {
         failedAttempts++;
         if (failedAttempts % 5 == 0) {
             long minutes = Math.min(60, 15L << Math.min(2, failedAttempts / 5 - 1));
             lockedUntil = now.plus(Duration.ofMinutes(minutes));
+            return true;
         }
+        return false;
     }
 
     public void recordSuccessfulLogin() {

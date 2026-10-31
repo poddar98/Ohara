@@ -133,6 +133,8 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Out of scope:** pgvector (unless eval demands), multimodal frame analysis by default, auto-grading.
 
 ## R6 — Scale, cost and operational hardening
+
+**Status (2026-10-31): slice 1 (audit trail) complete.** It provides the append-only `audit_event` table, the audited actions listed in 10, cross-tenant denial records, and org and platform audit views. **Next in code:** `ETag`/`If-Match` on mutable admin resources, account deletion and anonymization (04 §3.10), and metrics and alerts (Micrometer/Prometheus, 09 §8). The infrastructure work (load tests, DR drill, pentest, autoscaling) needs the AWS environment.
 - **Objective:** confidence at 5k B2B + 5k B2C with predictable cost.
 - **Tasks:** dashboards & alerts (09 §8); cost attribution job (11 §8); autoscaling policies; S3 lifecycle verification; CDN cache-hit tuning; load tests (playback session creation 200 rps, heartbeats 300 rps, live join burst 500 in 60 s, staff bulk grant of 2,000 rows); tenant-isolation suite expanded to all endpoints; DR drill (RDS PITR restore, SQS redrive, worker crash); security review + external pentest; virtual-thread vs platform-thread experiment (09 §7); evaluate RLS (ADR-002) and Kafka trigger (ADR-008).
 - **Acceptance criteria:** SLOs met under load (API p95 < 300 ms for non-provider calls; playback session p95 < 200 ms); restore drill RPO ≤ 5 min / RTO ≤ 1 h; zero high/critical pentest findings open; monthly cost within ±20% of the 11 model for observed usage.

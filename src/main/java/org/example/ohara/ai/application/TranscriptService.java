@@ -1,5 +1,6 @@
 package org.example.ohara.ai.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.ai.api.dto.AiStatusResponse;
 import org.example.ohara.ai.api.dto.StudyResponse;
 import org.example.ohara.ai.api.dto.TranscriptResponse;
@@ -37,9 +38,11 @@ public class TranscriptService {
     private final GenerationPipeline generations;
     private final JsonMapper json;
     private final JsonMapper strict;
+    private final AuditLog audit;
 
     TranscriptService(AiStore store, AssetQueries assets, LearnerService learner, TranscriptionPipeline pipeline,
-                      GenerationPipeline generations, JsonMapper json) {
+                      GenerationPipeline generations, JsonMapper json, AuditLog audit) {
+        this.audit = audit;
         this.store = store;
         this.assets = assets;
         this.learner = learner;
@@ -160,13 +163,15 @@ public class TranscriptService {
     /** Publishes a draft (low-confidence transcript, its captions): it replaces the type's currently approved one. */
     @Transactional
     public AiStatusResponse approve(CurrentActor actor, UUID assetId, UUID artifactId, String note) {
-        assets.requireManage(actor, assetId);
+        UUID ownerOrganizationId = assets.requireManage(actor, assetId).ownerOrganizationId();
         AiStore.ArtifactRow artifact = artifact(assetId, artifactId);
         if (!REVIEWABLE.contains(artifact.status())) {
             throw new ApiException.Conflict("artifact_not_reviewable", "This artifact is " + artifact.status().toLowerCase());
         }
         store.supersedeApproved(assetId, artifact.type());
         store.review(artifactId, "APPROVED", actor.userId(), note);
+        audit.record(actor.userId(), ownerOrganizationId, "AI_ARTIFACT_APPROVED", "AI_ARTIFACT", artifactId,
+            AuditLog.details("assetId", assetId, "type", artifact.type(), "artifactVersion", artifact.artifactVersion()));
         if (artifact.type().equals("TRANSCRIPT")) {
             generations.transcriptApproved(assetId, artifact.transcriptVersion());
         }
@@ -228,12 +233,14 @@ public class TranscriptService {
     /** Withdraws a draft or a published artifact; learners stop seeing it immediately. */
     @Transactional
     public AiStatusResponse reject(CurrentActor actor, UUID assetId, UUID artifactId, String note) {
-        assets.requireManage(actor, assetId);
+        UUID ownerOrganizationId = assets.requireManage(actor, assetId).ownerOrganizationId();
         AiStore.ArtifactRow artifact = artifact(assetId, artifactId);
         if (!REVIEWABLE.contains(artifact.status()) && !artifact.status().equals("APPROVED")) {
             throw new ApiException.Conflict("artifact_not_reviewable", "This artifact is " + artifact.status().toLowerCase());
         }
         store.review(artifactId, "REJECTED", actor.userId(), note);
+        audit.record(actor.userId(), ownerOrganizationId, "AI_ARTIFACT_REJECTED", "AI_ARTIFACT", artifactId,
+            AuditLog.details("assetId", assetId, "type", artifact.type(), "previousStatus", artifact.status()));
         return status(actor, assetId);
     }
 

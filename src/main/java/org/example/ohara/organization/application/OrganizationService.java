@@ -1,5 +1,7 @@
 package org.example.ohara.organization.application;
 
+import org.example.ohara.platform.audit.AuditLog;
+import org.example.ohara.platform.audit.AuditQueries;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.common.web.PageResponse;
@@ -27,6 +29,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +50,8 @@ public class OrganizationService {
     private final OrgAuthorizationService authorization;
     private final UserService userService;
     private final CohortPlacementEvents events;
+    private final AuditLog audit;
+    private final AuditQueries auditQueries;
 
     public OrganizationService(OrganizationRepository organizations,
                                OrganizationMembershipRepository memberships,
@@ -54,7 +59,9 @@ public class OrganizationService {
                                CohortMembershipRepository cohortMemberships,
                                OrgAuthorizationService authorization,
                                UserService userService,
-                               CohortPlacementEvents events) {
+                               CohortPlacementEvents events, AuditLog audit, AuditQueries auditQueries) {
+        this.audit = audit;
+        this.auditQueries = auditQueries;
         this.organizations = organizations;
         this.memberships = memberships;
         this.cohorts = cohorts;
@@ -91,7 +98,12 @@ public class OrganizationService {
     public OrganizationResponse changeStatus(CurrentActor actor, UUID organizationId, Organization.Status status) {
         requirePlatformAdmin(actor);
         Organization org = organizations.findById(organizationId).orElseThrow(OrgAuthorizationService::notFound);
+        Organization.Status previous = org.getStatus();
         org.changeStatus(status);
+        if (previous != status) {
+            audit.record(actor.userId(), organizationId, "ORGANIZATION_STATUS_CHANGED", "ORGANIZATION", organizationId,
+                AuditLog.details("from", previous.name(), "to", status.name()));
+        }
         return OrganizationResponse.of(org);
     }
 
@@ -146,6 +158,8 @@ public class OrganizationService {
         if (existing.isEmpty()) {
             OrganizationMembership created = memberships.save(
                 new OrganizationMembership(organizationId, user, request.roles(), externalRef));
+            audit.record(actor.userId(), organizationId, "MEMBER_ADDED", "MEMBERSHIP", user.getId(),
+                AuditLog.details("roles", created.getRoles()));
             return new AddMemberResult(MemberResponse.of(created), true);
         }
 
@@ -159,6 +173,8 @@ public class OrganizationService {
         if (externalRef != null) {
             membership.setExternalRef(externalRef);
         }
+        audit.record(actor.userId(), organizationId, "MEMBER_ROLES_CHANGED", "MEMBERSHIP", user.getId(),
+            AuditLog.details("roles", membership.getRoles(), "status", membership.getStatus().name()));
         return new AddMemberResult(MemberResponse.of(membership), false);
     }
 
@@ -168,6 +184,8 @@ public class OrganizationService {
         OrganizationMembership membership = memberships.findByOrganizationIdAndUserId(organizationId, userId)
             .orElseThrow(OrganizationService::memberNotFound);
 
+        Set<OrgRole> oldRoles = EnumSet.copyOf(membership.getRoles());
+        OrganizationMembership.Status oldStatus = membership.getStatus();
         Set<OrgRole> newRoles = request.roles() != null ? EnumSet.copyOf(request.roles()) : membership.getRoles();
         OrganizationMembership.Status newStatus = request.status() != null ? request.status() : membership.getStatus();
         guardLastAdmin(organizationId, membership, newRoles, newStatus);
@@ -195,7 +213,21 @@ public class OrganizationService {
                     events.ended(cm);
                 });
         }
+        if (!oldRoles.equals(membership.getRoles()) || oldStatus != membership.getStatus()) {
+            audit.record(actor.userId(), organizationId, "MEMBER_ROLES_CHANGED", "MEMBERSHIP", userId, AuditLog.details(
+                "fromRoles", oldRoles, "toRoles", membership.getRoles(), "fromStatus", oldStatus.name(),
+                "toStatus", membership.getStatus().name()));
+        }
         return MemberResponse.of(membership);
+    }
+
+    /** The organization's audit trail, newest first. Org admins and platform staff. */
+    @Transactional(readOnly = true)
+    public PageResponse<AuditQueries.Event> audit(CurrentActor actor, UUID organizationId, UUID actorUserId, String action,
+                                                  String resourceType, String resourceId, Instant from, Instant to, int page, int size) {
+        authorization.require(actor, organizationId, OrgPermission.VIEW_AUDIT);
+        return auditQueries.page(new AuditQueries.Filter(organizationId, actorUserId, action, resourceType, resourceId, from, to),
+            Math.max(page, 0), PageResponse.clampSize(size));
     }
 
     /** The authenticated user's active affiliations, with their open cohort placements. */

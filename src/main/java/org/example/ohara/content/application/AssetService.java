@@ -1,5 +1,6 @@
 package org.example.ohara.content.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.common.web.PageResponse;
@@ -64,9 +65,11 @@ public class AssetService {
     private final JobScheduler jobs;
     private final MediaRenditionRepository renditions;
     private final VideoEvents events;
+    private final AuditLog audit;
 
     public AssetService(ContentAssetRepository assets, MediaUploadRepository uploads, ObjectStorage storage,
-                        AssetAccess access, JobScheduler jobs, MediaRenditionRepository renditions, VideoEvents events) {
+                        AssetAccess access, JobScheduler jobs, MediaRenditionRepository renditions, VideoEvents events, AuditLog audit) {
+        this.audit = audit;
         this.assets = assets;
         this.uploads = uploads;
         this.storage = storage;
@@ -258,6 +261,8 @@ public class AssetService {
         }
         asset.requeueForProcessing();
         events.reprocessing(assetId);
+        audit.record(actor.userId(), asset.getOwnerOrganizationId(), "ASSET_REPROCESSED", "ASSET", assetId,
+            AuditLog.details("failureCode", asset.getFailureCode()));
         jobs.enqueue(JobRequest.of(PROCESS_JOB, PROCESS_JOB + ":" + assetId + ":reprocess:" + UUID.randomUUID(),
             new ProcessWork(assetId, asset.getSourceVersionId())).withMaxAttempts(5));
         return AssetResponse.of(asset);
@@ -277,6 +282,7 @@ public class AssetService {
         ContentAsset asset = asset(assetId);
         access.requireManage(actor, asset);
         asset.retire();
+        audit.record(actor.userId(), asset.getOwnerOrganizationId(), "ASSET_RETIRED", "ASSET", assetId, null);
         return AssetResponse.of(asset);
     }
 
@@ -292,6 +298,8 @@ public class AssetService {
             throw new ApiException.Conflict("asset_processing", "Wait for processing to finish");
         }
         assets.delete(asset);
+        audit.record(actor.userId(), asset.getOwnerOrganizationId(), "ASSET_DELETED", "ASSET", assetId,
+            AuditLog.details("type", asset.getType().name(), "title", asset.getTitle()));
     }
 
     // --- helpers -----------------------------------------------------------------------------------

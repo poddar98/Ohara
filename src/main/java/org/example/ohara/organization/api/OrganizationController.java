@@ -12,6 +12,7 @@ import org.example.ohara.organization.api.dto.UpdateOrganizationRequest;
 import org.example.ohara.organization.application.OrganizationService;
 import org.example.ohara.organization.domain.OrgRole;
 import org.example.ohara.organization.domain.OrganizationMembership;
+import org.example.ohara.platform.audit.AuditQueries;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -38,6 +40,19 @@ public class OrganizationController {
     @GetMapping("/api/users/me/organizations")
     public List<MyOrganizationResponse> mine(@AuthenticationPrincipal CurrentActor actor) {
         return organizations.myOrganizations(actor);
+    }
+
+    @GetMapping("/api/orgs/{orgId}/audit")
+    public PageResponse<AuditQueries.Event> audit(@AuthenticationPrincipal CurrentActor actor, @PathVariable UUID orgId,
+                                                  @RequestParam(required = false) UUID actorUserId,
+                                                  @RequestParam(required = false) String action,
+                                                  @RequestParam(required = false) String resourceType,
+                                                  @RequestParam(required = false) String resourceId,
+                                                  @RequestParam(required = false) Instant from,
+                                                  @RequestParam(required = false) Instant to,
+                                                  @RequestParam(defaultValue = "0") int page,
+                                                  @RequestParam(defaultValue = "50") int size) {
+        return organizations.audit(actor, orgId, actorUserId, action, resourceType, resourceId, from, to, page, size);
     }
 
     @GetMapping("/api/orgs/{orgId}")

@@ -18,7 +18,9 @@ public enum OrgPermission {
     /** Full control over every course the organization owns. */
     MANAGE_COURSES(false, OrgRole.ORG_ADMIN),
     /** Schedule and run live classes (instructors only for sessions they host). */
-    SCHEDULE_LIVE(false, OrgRole.ORG_ADMIN, OrgRole.INSTRUCTOR);
+    SCHEDULE_LIVE(false, OrgRole.ORG_ADMIN, OrgRole.INSTRUCTOR),
+    /** Read the organization's audit trail. */
+    VIEW_AUDIT(true, OrgRole.ORG_ADMIN);
 
     private final boolean readOnly;
     private final Set<OrgRole> grantedTo;

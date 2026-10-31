@@ -1,5 +1,6 @@
 package org.example.ohara.organization.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.common.web.PageResponse;
@@ -61,9 +62,11 @@ public class BulkImportService {
     private final CohortRepository cohorts;
     private final OrgAuthorizationService authorization;
     private final JobScheduler jobScheduler;
+    private final AuditLog audit;
 
     public BulkImportService(BulkImportJobRepository jobs, BulkImportRowRepository rows, CohortRepository cohorts,
-                             OrgAuthorizationService authorization, JobScheduler jobScheduler) {
+                             OrgAuthorizationService authorization, JobScheduler jobScheduler, AuditLog audit) {
+        this.audit = audit;
         this.jobs = jobs;
         this.rows = rows;
         this.cohorts = cohorts;
@@ -168,6 +171,7 @@ public class BulkImportService {
             throw new ApiException.Conflict("import_not_confirmable", "The import is " + job.getStatus().name().toLowerCase());
         }
         job.confirm();
+        audit.record(actor.userId(), organizationId, "IMPORT_CONFIRMED", "BULK_IMPORT", importId, null);
         jobScheduler.enqueue(JobRequest.of(JOB_TYPE, JOB_TYPE + ":" + importId, new ImportWork(importId)).withMaxAttempts(10));
         return ImportResponse.of(job);
     }
@@ -185,6 +189,8 @@ public class BulkImportService {
         if (wasValidated) {
             rows.cancelPending(importId);
         }
+        audit.record(actor.userId(), organizationId, "IMPORT_CANCELLED", "BULK_IMPORT", importId,
+            AuditLog.details("whileProcessing", !wasValidated));
         return ImportResponse.of(job);
     }
 

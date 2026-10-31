@@ -1,5 +1,6 @@
 package org.example.ohara.enrollment.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.auth.application.AccountProvisioning;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
@@ -50,9 +51,11 @@ public class AccessGrantService {
     private final AccountProvisioning accounts;
     private final UserService users;
     private final CourseQueries courses;
+    private final AuditLog audit;
 
     public AccessGrantService(CourseOfferingRepository offerings, EnrollmentRepository enrollments, AccessGrantRepository grants,
-                              EnrollmentCore core, AccountProvisioning accounts, UserService users, CourseQueries courses) {
+                              EnrollmentCore core, AccountProvisioning accounts, UserService users, CourseQueries courses, AuditLog audit) {
+        this.audit = audit;
         this.offerings = offerings;
         this.enrollments = enrollments;
         this.grants = grants;
@@ -112,6 +115,9 @@ public class AccessGrantService {
         }
         AccessGrant grant = core.grant(enrollment, AccessGrant.Source.CONTRACT, null, r.externalReference().trim(),
             r.note(), now, until, actor.userId());
+        audit.record(actor.userId(), null, "ACCESS_GRANTED", "ACCESS_GRANT", grant.getId(), AuditLog.details(
+            "offeringId", offeringId, "learnerUserId", user.getId(), "externalReference", grant.getExternalReference(),
+            "validUntil", until, "accountCreated", userCreated));
         return GrantResponse.of(grant, user.getEmail(), true, userCreated);
     }
 
@@ -131,6 +137,9 @@ public class AccessGrantService {
         AccessGrant renewed = core.grant(enrollment, AccessGrant.Source.CONTRACT, null, r.externalReference().trim(),
             r.note(), now, r.validUntil(), actor.userId());
         core.revoke(current, AccessGrant.RevokedReason.REPLACED, actor.userId());
+        audit.record(actor.userId(), enrollment.getOrganizationId(), "ACCESS_EXTENDED", "ACCESS_GRANT", renewed.getId(), AuditLog.details(
+            "replacedGrantId", current.getId(), "learnerUserId", enrollment.getUserId(),
+            "externalReference", renewed.getExternalReference(), "validUntil", r.validUntil()));
         return GrantResponse.of(renewed, emailOf(enrollment.getUserId()), true, false);
     }
 
@@ -144,6 +153,8 @@ public class AccessGrantService {
         AccessGrant grant = staffGrant(grantId);
         if (grant.getRevokedAt() == null) {
             core.revoke(grant, reason, actor.userId());
+            audit.record(actor.userId(), null, "ACCESS_REVOKED", "ACCESS_GRANT", grant.getId(), AuditLog.details(
+                "learnerUserId", grant.getUserId(), "reason", reason.name(), "externalReference", grant.getExternalReference()));
         }
         return GrantResponse.of(grant, emailOf(grant.getUserId()), false, false);
     }

@@ -1,5 +1,6 @@
 package org.example.ohara.auth.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.auth.api.dto.LoginRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
 import org.example.ohara.auth.domain.AuthIdentity;
@@ -74,7 +75,8 @@ class AuthServiceTest {
             new TokenIssuer(jwtTokenProvider, refreshTokenRepository),
             accountRecoveryService,
             emails,
-            consentService
+            consentService,
+            mock(AuditLog.class)
         );
     }
 

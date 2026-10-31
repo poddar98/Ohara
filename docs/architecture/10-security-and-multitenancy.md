@@ -103,6 +103,27 @@ if (d.denied()) throw d.toException();             // 404 for cross-tenant, 403 
 
 ## 8. Audit, retention and privacy
 
+> **As built (R6 slice 1, 2026-10-31), `platform.audit`:**
+> - **How events are recorded.** `AuditLog.record` joins the action's transaction, so an action and its audit row commit or roll back together. `recordIndependently` (REQUIRES_NEW) is used for refusals.
+> - **Audited actions:**
+>   - access grants: granted, extended and revoked, with the bank reference;
+>   - org-side access revocation;
+>   - offerings: opened and closed;
+>   - courses: version published, version archived, course retired;
+>   - organizations: status changed;
+>   - members: added, and roles or status changed (from/to);
+>   - invitations: sent, reissued, revoked and accepted;
+>   - imports: confirmed and cancelled;
+>   - cohort placements: removed and transferred;
+>   - assets: retired, deleted and reprocessed;
+>   - live classes: ingest key viewed, session cancelled, attendance overridden;
+>   - AI artifacts: approved and rejected;
+>   - account lockouts and refresh-token reuse (SYSTEM actor);
+>   - cross-tenant denials (`ACCESS_DENIED_CROSS_TENANT`, recorded against the target org whenever `OrgAuthorizationService.require` refuses a non-member).
+> - **Details** hold ids and codes only, never emails or names.
+> - **Reading the trail.** `GET /api/orgs/{orgId}/audit` (new `VIEW_AUDIT` permission, org admins) and `GET /api/admin/audit` (platform staff), filtered by actor, action, resource and time.
+> - **Not audited yet:** impersonation (no such feature), data exports, account deletion (not built), and denials outside org authorization (e.g. lesson access).
+
 **Audited actions** (`audit_event`): authentication anomalies (lockouts, reuse detection), role/membership changes, invitations, imports, offering open/close, grant/extend/revoke (with contract/bank reference), course publish/archive, asset retire/delete/reprocess, live session ingest-key views, refunds, admin impersonation, data exports, account deactivation/deletion, cross-tenant denials.
 
 **Retention schedule (initial; confirm with legal — Q-08):**

@@ -1,5 +1,6 @@
 package org.example.ohara.organization.application;
 
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
 import org.example.ohara.organization.domain.Organization;
@@ -23,9 +24,11 @@ import java.util.UUID;
 public class OrgAuthorizationService {
 
     private final OrganizationRepository organizations;
+    private final AuditLog audit;
     private final OrganizationMembershipRepository memberships;
 
-    public OrgAuthorizationService(OrganizationRepository organizations, OrganizationMembershipRepository memberships) {
+    public OrgAuthorizationService(OrganizationRepository organizations, OrganizationMembershipRepository memberships, AuditLog audit) {
+        this.audit = audit;
         this.organizations = organizations;
         this.memberships = memberships;
     }
@@ -40,7 +43,13 @@ public class OrgAuthorizationService {
 
         OrganizationMembership membership = memberships.findByOrganizationIdAndUserId(organizationId, actor.userId())
             .filter(OrganizationMembership::isActive)
-            .orElseThrow(OrgAuthorizationService::notFound);
+            .orElse(null);
+        if (membership == null) {
+            // Someone outside the organization reached for it: answered as "not found", recorded for review.
+            audit.recordIndependently(actor.userId(), organizationId, "ACCESS_DENIED_CROSS_TENANT", "ORGANIZATION", organizationId,
+                AuditLog.details("permission", permission.name()));
+            throw notFound();
+        }
 
         if (!organization.isActive()) {
             throw new ApiException.Forbidden("organization_inactive", "This organization is " + organization.getStatus().name().toLowerCase());
