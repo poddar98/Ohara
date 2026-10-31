@@ -83,23 +83,28 @@ public class LearnerService {
     public record OpenVideo(UUID lessonId, String lessonTitle, UUID contentId, UUID assetId) {
     }
 
+    /** The open videos of one enrollment, with what the enrollment is for. */
+    public record OpenVideos(UUID enrollmentId, UUID courseId, UUID organizationId, List<OpenVideo> videos) {
+    }
+
     /**
      * Videos of the enrolled version the learner may open right now (all of them with current access, else only free
      * preview lessons) — the allowed set for searching transcripts. Same lock rule as {@link #curriculum}.
      */
     @Transactional(readOnly = true)
-    public List<OpenVideo> openVideos(CurrentActor actor, UUID enrollmentId) {
+    public OpenVideos openVideos(CurrentActor actor, UUID enrollmentId) {
         Enrollment enrollment = enrollments.findByIdAndUserId(enrollmentId, actor.userId())
             .orElseThrow(() -> new ApiException.NotFound("enrollment_not_found", "Enrollment not found"));
         boolean hasAccess = access.enrollmentAccess(enrollment).allowed();
         VersionTree tree = courses.tree(enrollment.getCourseVersionId()).orElseThrow();
-        return tree.modules().stream()
+        List<OpenVideo> videos = tree.modules().stream()
             .flatMap(m -> m.lessons().stream())
             .filter(l -> hasAccess || l.preview())
             .flatMap(l -> l.contents().stream()
                 .filter(c -> c.kind() == LessonContent.Kind.VIDEO && c.contentAssetId() != null)
                 .map(c -> new OpenVideo(l.id(), l.title(), c.id(), c.contentAssetId())))
             .toList();
+        return new OpenVideos(enrollment.getId(), enrollment.getCourseId(), enrollment.getOrganizationId(), videos);
     }
 
     /**

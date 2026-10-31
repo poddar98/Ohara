@@ -325,6 +325,11 @@ Chat messages are **not** stored by default (IVS Chat is ephemeral). If moderati
 - **Visibility rule:** learners see only `APPROVED` (or `GENERATED` for types the org configured as auto-publish, e.g. captions).
 
 ### 9.4 `ai_qa_log` (Phase 5b, only when Q&A ships)
+> **As built (V18, 2026-10-31):** as designed, with these changes:
+> - added `enrollment_id`, `outcome` (ANSWERED, UNSUPPORTED, NOT_COVERED, REFUSED, INVALID, UNAVAILABLE) and `dropped_citation_count`;
+> - question text is never stored, and there is no opt-in yet;
+> - the user FK cascades so account deletion removes the rows;
+> - rows older than 90 days are purged by `QaMaintenance`.
 `id`; `user_id FK`; `organization_id NULL`; `course_id`; `question_sha256 CHAR(64)` (question text stored only if the org opts in for quality review); `retrieved_asset_ids UUID[]`; `model VARCHAR(64)`; `input_tokens`, `output_tokens INT`; `cost_micro_usd BIGINT`; `grounded BOOLEAN`; `citation_count SMALLINT`; `feedback SMALLINT NULL` (−1/+1); `created_at`. Index `(organization_id, created_at)`, `(user_id, created_at)` (per-user daily limit). Retention 90 days; deleted on account anonymization.
 
 ---
@@ -399,6 +404,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V15__live_recordings ✅ (2026-10-31) | content_asset.origin, live_session_id (unique where set); live_session.recording_master_key | Applied. |
 | V16__ai_transcripts ✅ (2026-10-31) | transcription, lecture_artifact, transcript_segment (generated `tsv` + GIN) | Applied. |
 | V17__ai_generations ✅ (2026-10-31) | ai_generation; lecture_artifact.generation_id, edited_by, edited_at | Applied. |
+| V18__ai_qa_log ✅ (2026-10-31) | ai_qa_log | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

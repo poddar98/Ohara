@@ -42,6 +42,10 @@ public class AiStore {
     public record SegmentRow(int seq, long startMs, long endMs, String speaker, String text, Double confidence) {
     }
 
+    /** A retrieved segment of an approved transcript. */
+    public record Passage(UUID assetId, int transcriptVersion, int seq, long startMs, long endMs, String text, double rank) {
+    }
+
     public record SearchHit(UUID assetId, long startMs, long endMs, String snippet, double rank) {
     }
 
@@ -218,6 +222,81 @@ public class AiStore {
             .query((rs, n) -> new SearchHit(rs.getObject("content_asset_id", UUID.class), rs.getLong("start_ms"),
                 rs.getLong("end_ms"), rs.getString("snippet"), rs.getDouble("rank")))
             .list();
+    }
+
+    /**
+     * Q&A retrieval: segments of approved transcripts of {@code allowedAssetIds} matching ANY meaningful word of the
+     * question (ranked by how many and how close), best first, at or above {@code minRank}. Questions are prose, so
+     * requiring every word in one segment (as search does) would miss most answers.
+     */
+    public List<Passage> retrieve(Collection<UUID> allowedAssetIds, String question, int limit, double minRank) {
+        if (allowedAssetIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                WITH q AS (
+                    SELECT to_tsquery('english', string_agg(DISTINCT quote_literal(lex), ' | ')) AS q
+                    FROM unnest(tsvector_to_array(to_tsvector('english', :question))) AS lex)
+                SELECT s.content_asset_id, s.transcript_version, s.seq, s.start_ms, s.end_ms, s.text, ts_rank_cd(s.tsv, q.q) AS rank
+                FROM transcript_segment s
+                JOIN lecture_artifact a ON a.content_asset_id = s.content_asset_id AND a.artifact_type = 'TRANSCRIPT'
+                     AND a.status = 'APPROVED' AND a.transcript_version = s.transcript_version
+                CROSS JOIN q
+                WHERE q.q IS NOT NULL AND s.content_asset_id IN (:allowed) AND s.tsv @@ q.q AND ts_rank_cd(s.tsv, q.q) >= :minRank
+                ORDER BY rank DESC, s.content_asset_id, s.seq
+                LIMIT :limit""")
+            .param("question", question).param("allowed", allowedAssetIds).param("limit", limit).param("minRank", minRank)
+            .query((rs, n) -> new Passage(rs.getObject("content_asset_id", UUID.class), rs.getInt("transcript_version"),
+                rs.getInt("seq"), rs.getLong("start_ms"), rs.getLong("end_ms"), rs.getString("text"), rs.getDouble("rank")))
+            .list();
+    }
+
+    public List<SegmentRow> segmentRange(UUID assetId, int version, int fromSeq, int toSeq) {
+        return jdbc.sql("""
+                SELECT seq, start_ms, end_ms, speaker, text, confidence FROM transcript_segment
+                WHERE content_asset_id = :a AND transcript_version = :v AND seq BETWEEN :from AND :to ORDER BY seq""")
+            .param("a", assetId).param("v", version).param("from", fromSeq).param("to", toSeq)
+            .query((rs, n) -> new SegmentRow(rs.getInt("seq"), rs.getLong("start_ms"), rs.getLong("end_ms"), rs.getString("speaker"),
+                rs.getString("text"), rs.getObject("confidence") == null ? null : rs.getDouble("confidence")))
+            .list();
+    }
+
+    // --- Q&A log -------------------------------------------------------------------------------------
+
+    public record QaLog(UUID userId, UUID enrollmentId, UUID organizationId, UUID courseId, String questionSha256,
+                        Collection<UUID> retrievedAssetIds, String outcome, String model, int inputTokens, int outputTokens,
+                        long costMicroUsd, boolean grounded, int citationCount, int droppedCitationCount) {
+    }
+
+    public UUID logQuestion(QaLog log) {
+        UUID id = UUID.randomUUID();
+        jdbc.sql("""
+                INSERT INTO ai_qa_log (id, user_id, enrollment_id, organization_id, course_id, question_sha256, retrieved_asset_ids,
+                       outcome, model, input_tokens, output_tokens, cost_micro_usd, grounded, citation_count, dropped_citation_count)
+                VALUES (:id, :u, :e, :o, :c, :sha, CAST(:assets AS uuid[]), :outcome, :model, :in, :out, :cost, :grounded, :cites, :dropped)""")
+            .param("id", id).param("u", log.userId()).param("e", log.enrollmentId()).param("o", log.organizationId())
+            .param("c", log.courseId()).param("sha", log.questionSha256())
+            .param("assets", "{" + String.join(",", log.retrievedAssetIds().stream().map(UUID::toString).toList()) + "}")
+            .param("outcome", log.outcome()).param("model", log.model()).param("in", log.inputTokens()).param("out", log.outputTokens())
+            .param("cost", log.costMicroUsd()).param("grounded", log.grounded()).param("cites", log.citationCount())
+            .param("dropped", log.droppedCitationCount())
+            .update();
+        return id;
+    }
+
+    public long questionsSince(UUID userId, Instant since) {
+        return jdbc.sql("SELECT count(*) FROM ai_qa_log WHERE user_id = :u AND created_at >= :since")
+            .param("u", userId).param("since", Timestamp.from(since)).query(Long.class).single();
+    }
+
+    /** False when the question isn't the user's. */
+    public boolean feedback(UUID questionId, UUID userId, int value) {
+        return jdbc.sql("UPDATE ai_qa_log SET feedback = :v WHERE id = :id AND user_id = :u")
+            .param("v", value).param("id", questionId).param("u", userId).update() == 1;
+    }
+
+    public int purgeQuestionsBefore(Instant cutoff) {
+        return jdbc.sql("DELETE FROM ai_qa_log WHERE created_at < :cutoff").param("cutoff", Timestamp.from(cutoff)).update();
     }
 
     // --- artifacts -----------------------------------------------------------------------------------

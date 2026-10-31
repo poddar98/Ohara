@@ -84,4 +84,11 @@ public abstract class ApiException extends RuntimeException {
             super(HttpStatus.GONE, code, message);
         }
     }
+
+    /** A dependency (e.g. an AI provider) is temporarily unavailable; the client may retry later. */
+    public static class ServiceUnavailable extends ApiException {
+        public ServiceUnavailable(String code, String message) {
+            super(HttpStatus.SERVICE_UNAVAILABLE, code, message);
+        }
+    }
 }

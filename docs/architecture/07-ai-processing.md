@@ -11,7 +11,7 @@ Status: **Proposed** · 2026-10-21 · All AI integrations are **proposed additio
 > - **Captions.** Stored inside the video's current HLS delivery path, so the playback cookies cover them, and returned as `captions[]` from playback and live replay as sidecar tracks. They are not in the master playlist yet: iOS native players need that, while hls.js and video.js load sidecars. After a reprocess they are copied to the new path.
 > - **Search.** Postgres FTS (`websearch_to_tsquery`, `ts_headline`) over approved transcripts, restricted to the videos the learner may open in that enrollment (`LearnerService.openVideos`). The SQL needs an allowed-asset list; nothing can search all assets.
 > - **Limitation.** For live recordings the provider is given the HLS master. Real Transcribe needs an audio file, so the AWS adapter must add an audio-only output (MediaConvert for uploads, an audio rendition or extract for recordings).
-> - **Deferred:** Q&A (5b) and budgets.
+> - **Deferred:** budgets.
 >
 > **As built (R5 slice 2, 2026-10-31):**
 > - **Port.** An `LlmClient` port (JSON-schema-shaped requests, STANDARD/FAST tiers, usage, stop reason) with `LocalLlmClient`, which builds valid answers from the transcript lines in the prompt. Its markers are LLM_INVALID, LLM_BROKEN, LLM_REFUSE and LLM_DOWN. There is no real provider yet (Q-15).
@@ -26,6 +26,17 @@ Status: **Proposed** · 2026-10-21 · All AI integrations are **proposed additio
 > - **Review.** Every output is a GENERATED draft. Staff may edit a draft (`PATCH`, validated the same way and recorded), approve it or reject it.
 > - **What learners see.** `GET /api/lessons/{l}/contents/{c}/study` returns only the approved summary, chapters and flashcards. Quizzes are never shown to learners until the assessment module exists (Q-12). While a newer summary waits for review, learners keep the older approved one.
 > - **Cost.** From `ohara.ai.pricing.llm-{input,output}-micro-usd-per-mtok`, which default to 0 until a provider and its prices are chosen.
+
+> **As built (R5b, 2026-10-31):**
+> - **Endpoint.** `POST /api/enrollments/{id}/qa {question, lessonId?}`.
+> - **Allowed videos first.** The allowed set is the videos the learner may open in that enrollment (`LearnerService.openVideos`), optionally narrowed to one lesson. It's computed before retrieval, and the store's retrieval method requires it.
+> - **Retrieval.** Postgres FTS using an OR of the question's lexemes, ranked with `ts_rank_cd`. Hits below `ohara.ai.qa.min-rank` (0.05) are dropped, and the top `ohara.ai.qa.top-k` (8) are kept. Each hit is widened to ±1 segment, merged into contiguous excerpts, and labelled E1…En.
+> - **No hits → NOT_COVERED** without a model call.
+> - **Answering.** The model (`FAST` tier) gets the excerpts as data, with an instruction to ignore instructions inside them. It must return `{answer, supported, citations[{excerpt, startMs}]}`.
+> - **Citation check.** The server keeps only citations of excerpts it sent, with `startMs` inside the excerpt. If no valid citation remains, or the answer isn't supported, the outcome is UNSUPPORTED and a fixed "couldn't find support" text is returned, never the model's text. Refusal → REFUSED; malformed output → INVALID; provider outage → 503 `ai_unavailable`. There is no repair call, to keep it interactive.
+> - **Limits and logging.** 30 questions per user per rolling 24 h (429 `qa_limit_reached`). Each question is logged as a hash with outcome, tokens, cost and citation counts, and learners can give 👍/👎 feedback.
+> - **Evaluation.** `POST /api/admin/ai/qa/evaluate` (platform admins) runs a labelled set: Recall@k of retrieval, plus the grounded rate when `withAnswers`. This is the harness for the real-provider benchmark (≥ 100 questions per pilot course).
+> - **Not built yet:** org-level enable/disable (global `ohara.ai.qa.enabled` instead), monthly org token budgets, and opt-in storage of question text for quality review.
 
 ## 1. Principles
 

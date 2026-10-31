@@ -92,7 +92,7 @@ public class TranscriptService {
         if (q.length() < 2 || q.length() > 200) {
             throw new ApiException.BadRequest("invalid_query", "Search for 2 to 200 characters");
         }
-        Map<UUID, LearnerService.OpenVideo> byAsset = learner.openVideos(actor, enrollmentId).stream()
+        Map<UUID, LearnerService.OpenVideo> byAsset = learner.openVideos(actor, enrollmentId).videos().stream()
             .collect(Collectors.toMap(LearnerService.OpenVideo::assetId, Function.identity(), (first, later) -> first, LinkedHashMap::new));
         return store.search(byAsset.keySet(), q, Math.clamp(limit, 1, 50)).stream()
             .map(h -> {

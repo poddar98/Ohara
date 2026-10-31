@@ -5,8 +5,9 @@ import jakarta.servlet.http.Cookie;
 import org.example.ohara.content.application.VideoEvents;
 import org.example.ohara.platform.jobs.internal.JobRunner;
 import org.example.ohara.support.AssetFixtures;
+import org.example.ohara.support.LectureFixtures;
+import org.example.ohara.support.LectureFixtures.Lecture;
 import org.example.ohara.support.OrgFixtures;
-import org.example.ohara.support.OrgFixtures.Org;
 import org.example.ohara.support.TestUsers;
 import org.example.ohara.support.TestUsers.TestUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,7 +24,6 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -53,59 +53,29 @@ class TranscriptIntegrationTest {
     TestUsers users;
     OrgFixtures fx;
     AssetFixtures assets;
+    LectureFixtures lectures;
 
     @BeforeEach
     void setUp() throws Exception {
         users = new TestUsers(jdbc, passwordEncoder, mockMvc);
         fx = new OrgFixtures(mockMvc, users);
         assets = new AssetFixtures(mockMvc, fx);
-    }
-
-    /** A published college course whose one lesson holds a video (with optional STT marker); one learner enrolled. */
-    private record Setup(Org org, String lessonId, String contentId, UUID assetId, UUID cohortId, TestUser learner, String enrollmentId) {
+        lectures = new LectureFixtures(fx, assets, jobs);
     }
 
     private static String json(ResultActions r) throws Exception {
         return r.andReturn().getResponse().getContentAsString();
     }
 
-    private Setup setup(String marker) throws Exception {
-        Org org = fx.orgWithAdmin();
-        UUID assetId = assets.upload(org.admin(), org.id(), "VIDEO", "video/mp4",
-            ("....ftypisom lecture " + marker).getBytes(StandardCharsets.US_ASCII), "");
-        String course = json(fx.send(post("/api/courses"), org.admin(), "{\"title\":\"Algorithms\",\"slug\":\"a-%s\",\"ownerOrganizationId\":\"%s\"}"
-            .formatted(UUID.randomUUID().toString().substring(0, 10), org.id())));
-        String base = "/api/courses/" + JsonPath.read(course, "$.id") + "/versions/" + JsonPath.read(course, "$.draftVersionId");
-        fx.send(patch(base), org.admin(), "{\"description\":\"d\"}");
-        String moduleId = JsonPath.read(json(fx.send(post(base + "/modules"), org.admin(), "{\"title\":\"M\"}")), "$.modules[0].id");
-        String lessonId = JsonPath.read(json(fx.send(post(base + "/modules/" + moduleId + "/lessons"), org.admin(),
-            "{\"title\":\"Sorting\",\"type\":\"VIDEO\",\"durationSeconds\":30}")), "$.modules[0].lessons[0].id");
-        String contentId = JsonPath.read(json(fx.send(post(base + "/lessons/" + lessonId + "/contents"), org.admin(),
-            "{\"kind\":\"VIDEO\",\"contentAssetId\":\"%s\"}".formatted(assetId))), "$.modules[0].lessons[0].contents[0].id");
-        jobs.drain(); // video READY (and transcribed) before publishing
-        fx.send(post(base + "/publish"), org.admin(), "{}").andExpect(status().isOk());
-
-        UUID cohortId = fx.cohort(org, "T" + UUID.randomUUID().toString().substring(0, 4));
-        TestUser learner = fx.member(org, "LEARNER");
-        fx.send(post("/api/orgs/{orgId}/cohorts/{cohortId}/members", org.id(), cohortId), org.admin(),
-            "{\"userIds\":[\"%s\"]}".formatted(learner.id())).andExpect(status().isOk());
-        String offering = json(fx.send(post("/api/orgs/{orgId}/offerings", org.id()), org.admin(),
-            "{\"courseId\":\"%s\",\"cohortId\":\"%s\"}".formatted(JsonPath.read(course, "$.id"), cohortId)));
-        fx.send(post("/api/orgs/{orgId}/offerings/{id}/open", org.id(), (String) JsonPath.read(offering, "$.id")), org.admin(), null)
-            .andExpect(status().isOk());
-        String enrollmentId = JsonPath.read(json(fx.send(get("/api/me/courses"), learner, null)), "$[0].enrollmentId");
-        return new Setup(org, lessonId, contentId, assetId, cohortId, learner, enrollmentId);
-    }
-
-    private ResultActions transcript(TestUser as, Setup s) throws Exception {
+    private ResultActions transcript(TestUser as, Lecture s) throws Exception {
         return fx.send(get("/api/lessons/{l}/contents/{c}/transcript", s.lessonId(), s.contentId()), as, null);
     }
 
-    private ResultActions search(TestUser as, Setup s, String q) throws Exception {
+    private ResultActions search(TestUser as, Lecture s, String q) throws Exception {
         return fx.send(get("/api/enrollments/{id}/transcripts/search?q={q}", s.enrollmentId(), q), as, null);
     }
 
-    private String aiStatus(Setup s) throws Exception {
+    private String aiStatus(Lecture s) throws Exception {
         return json(fx.send(get("/api/assets/{id}/ai", s.assetId()), s.org().admin(), null).andExpect(status().isOk()));
     }
 
@@ -119,7 +89,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void aReadyVideoIsTranscribedCaptionedAndSearchable() throws Exception {
-        Setup s = setup("");
+        Lecture s = lectures.create("");
 
         String status = aiStatus(s);
         assertThat(JsonPath.<String>read(status, "$.transcription.status")).isEqualTo("COMPLETED");
@@ -152,7 +122,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void theSameSourceIsNeverTranscribedTwiceUnlessForced() throws Exception {
-        Setup s = setup("");
+        Lecture s = lectures.create("");
         assertThat(transcriptionRuns(s.assetId())).isEqualTo(1);
 
         tx.executeWithoutResult(t -> events.publishEvent(new VideoEvents.Ready(s.assetId()))); // a replayed READY event
@@ -173,7 +143,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void transcriptionFailuresNeverAffectPlayback() throws Exception {
-        Setup s = setup("FAIL_STT");
+        Lecture s = lectures.create("FAIL_STT");
 
         String status = aiStatus(s);
         assertThat(JsonPath.<String>read(status, "$.transcription.status")).isEqualTo("FAILED");
@@ -193,7 +163,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void lowConfidenceTranscriptsWaitForReview() throws Exception {
-        Setup s = setup("MUMBLE");
+        Lecture s = lectures.create("MUMBLE");
 
         String status = aiStatus(s);
         assertThat(JsonPath.<List<String>>read(status, "$.artifacts[*].status")).containsOnly("GENERATED");
@@ -218,8 +188,8 @@ class TranscriptIntegrationTest {
 
     @Test
     void searchOnlyCoversVideosTheLearnerMayOpen() throws Exception {
-        Setup s = setup("");
-        Setup other = setup(""); // another college, the same lecture words
+        Lecture s = lectures.create("");
+        Lecture other = lectures.create(""); // another college, the same lecture words
 
         assertThat(JsonPath.<List<String>>read(json(search(s.learner(), s, "quick sort pivot")), "$[*].assetId"))
             .containsOnly(s.assetId().toString());
@@ -232,13 +202,13 @@ class TranscriptIntegrationTest {
 
     // --- LLM study material ---
 
-    private ResultActions generate(TestUser as, Setup s, String type, String instructions, boolean force) throws Exception {
+    private ResultActions generate(TestUser as, Lecture s, String type, String instructions, boolean force) throws Exception {
         String extra = instructions == null ? "" : ",\"instructions\":\"%s\"".formatted(instructions);
         return fx.send(post("/api/assets/{id}/ai/generate", s.assetId()), as,
             "{\"type\":\"%s\",\"force\":%s%s}".formatted(type, force, extra));
     }
 
-    private ResultActions study(TestUser as, Setup s) throws Exception {
+    private ResultActions study(TestUser as, Lecture s) throws Exception {
         return fx.send(get("/api/lessons/{l}/contents/{c}/study", s.lessonId(), s.contentId()), as, null);
     }
 
@@ -249,7 +219,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void anApprovedTranscriptIsSummarizedIntoDraftsThatStaffReview() throws Exception {
-        Setup s = setup("");
+        Lecture s = lectures.create("");
 
         String status = aiStatus(s);
         assertThat(generationField(status, "SUMMARY_CHAPTERS", "status")).isEqualTo("COMPLETED");
@@ -284,7 +254,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void quizAndFlashcardDraftsAreMadeOnRequest() throws Exception {
-        Setup s = setup("");
+        Lecture s = lectures.create("");
 
         generate(s.learner(), s, "QUIZ_DRAFT", null, false).andExpect(status().isNotFound());
         generate(s.org().admin(), s, "QUIZ_DRAFT", "Focus on complexity", false).andExpect(status().isAccepted());
@@ -310,7 +280,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void invalidAnswersGetOneRepairAndRefusalsOrBrokenAnswersFail() throws Exception {
-        Setup s = setup("");
+        Lecture s = lectures.create("");
 
         generate(s.org().admin(), s, "FLASHCARDS", "LLM_INVALID", false).andExpect(status().isAccepted());
         generate(s.org().admin(), s, "QUIZ_DRAFT", "LLM_BROKEN", false).andExpect(status().isAccepted());
@@ -330,7 +300,7 @@ class TranscriptIntegrationTest {
 
     @Test
     void nothingIsGeneratedFromAnUnapprovedTranscript() throws Exception {
-        Setup s = setup("MUMBLE");
+        Lecture s = lectures.create("MUMBLE");
 
         assertThat(JsonPath.<List<Object>>read(aiStatus(s), "$.generations")).isEmpty();
         generate(s.org().admin(), s, "QUIZ_DRAFT", null, false)

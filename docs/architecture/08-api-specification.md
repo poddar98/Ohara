@@ -197,6 +197,11 @@ All `/api/orgs/{orgId}/**` require `ORG_ADMIN` of `orgId` (or platform admin) un
   - `GET /api/assets/{id}/ai` now includes `generations[]`.
 - **Learners:** `GET /api/lessons/{l}/contents/{c}/study` → `{assetId, summary?, chapters[], flashcards[]}`.
 
+*5b additions:*
+- `POST /api/enrollments/{enrollmentId}/qa` `{question (3–500), lessonId?}` → `{questionId, outcome, grounded, answer, citations[{lessonId, lessonTitle, contentId, assetId, startMs, endMs}]}`. Errors: 429 `qa_limit_reached` (with `limit`); 503 `ai_unavailable`; 404 for someone else's enrollment.
+- `POST /api/qa/{questionId}/feedback` `{rating: UP|DOWN}` → 204; 404 if it isn't the caller's question.
+- `POST /api/admin/ai/qa/evaluate` `{cases[{question, assetId, expectedStartMs, expectedEndMs}], withAnswers?}` → `{cases, k, recallAtK, groundedRate?, results[]}` (platform admin).
+
 | Method & path | Purpose | Authz | Notes |
 |---|---|---|---|
 | `GET /api/assets/{assetId}/ai` | AI job + artifact status | staff | per type: status, version, cost |

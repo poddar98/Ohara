@@ -22,6 +22,7 @@ import java.util.regex.Pattern;
 @ConditionalOnProperty(name = "ohara.ai.llm.provider", havingValue = "local", matchIfMissing = true)
 class LocalLlmClient implements LlmClient {
 
+    private static final Pattern EXCERPT = Pattern.compile("^(E\\d+) \\[(\\d+)-(\\d+)] (.+)$", Pattern.MULTILINE);
     private static final Pattern LINE = Pattern.compile("^\\[(\\d+)-(\\d+)] (.+)$", Pattern.MULTILINE);
 
     private record Line(long startMs, long endMs, String text) {
@@ -52,6 +53,10 @@ class LocalLlmClient implements LlmClient {
         if (prompt.contains("LLM_BROKEN") || (prompt.contains("LLM_INVALID") && !repair)) {
             return new Response("{\"oops\": ", "local-llm-1", in, 4, 0, StopReason.END);
         }
+        if (request.task().equals("QA")) {
+            String text = json.writeValueAsString(answer(prompt));
+            return new Response(text, "local-llm-1", in, text.length() / 4, 0, StopReason.END);
+        }
         List<Line> lines = new ArrayList<>();
         Matcher m = LINE.matcher(prompt);
         while (m.find()) {
@@ -65,6 +70,17 @@ class LocalLlmClient implements LlmClient {
         };
         String text = json.writeValueAsString(answer);
         return new Response(text, "local-llm-1", in, text.length() / 4, 0, StopReason.END);
+    }
+
+    /** Answers with the first excerpt, citing it; LLM_BADCITE cites an excerpt that wasn't given. */
+    private static Map<String, Object> answer(String prompt) {
+        Matcher m = EXCERPT.matcher(prompt);
+        if (!m.find()) {
+            return Map.of("answer", "The excerpts don't cover this.", "supported", false, "citations", List.of());
+        }
+        String id = prompt.contains("LLM_BADCITE") ? "E99" : m.group(1);
+        return Map.of("answer", "According to the lecture: " + m.group(4).strip(), "supported", true,
+            "citations", List.of(Map.of("excerpt", id, "startMs", Long.parseLong(m.group(2)))));
     }
 
     private static Map<String, Object> summary(List<Line> lines) {
