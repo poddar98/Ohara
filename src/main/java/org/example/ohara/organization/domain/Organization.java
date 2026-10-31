@@ -100,4 +100,7 @@ public class Organization {
         this.status = newStatus;
         this.updatedAt = Instant.now();
     }
+
+    /** Optimistic-lock version; also the resource's ETag. */
+    public int getVersion() { return version; }
 }

@@ -1,5 +1,6 @@
 package org.example.ohara.auth.infrastructure.security;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,6 +24,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    private final int managementPort;
+
+    public SecurityConfig(@Value("${management.server.port:-1}") int managementPort) {
+        this.managementPort = managementPort;
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -39,6 +46,9 @@ public class SecurityConfig {
                 .requestMatchers("/dev-storage/**", "/dev-cdn/**", "/dev-live/**").permitAll()
                 // Unverified sessions can see who they are and nothing else.
                 .requestMatchers(HttpMethod.GET, "/api/users/me").authenticated()
+                // Metrics only on the internal management port, which the load balancer doesn't route to.
+                .requestMatchers(request -> managementPort > 0 && request.getLocalPort() == managementPort).permitAll()
+                .requestMatchers("/actuator/**").denyAll()
                 .anyRequest().hasAuthority(JwtAuthenticationFilter.FULL_SCOPE))
             .authenticationProvider(authenticationProvider)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

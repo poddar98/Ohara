@@ -1,5 +1,6 @@
 package org.example.ohara.ai.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.ai.api.dto.QaEvalRequest;
 import org.example.ohara.ai.api.dto.QaEvalResponse;
 import org.example.ohara.ai.api.dto.QaResponse;
@@ -70,6 +71,7 @@ public class QaService {
     private final int topK;
     private final double minRank;
     private final long inputMicroUsdPerMTok;
+    private final MeterRegistry meters;
     private final long outputMicroUsdPerMTok;
 
     QaService(AiStore store, LearnerService learner, LlmClient llm, JsonMapper json,
@@ -78,7 +80,8 @@ public class QaService {
               @Value("${ohara.ai.qa.top-k:8}") int topK,
               @Value("${ohara.ai.qa.min-rank:0.05}") double minRank,
               @Value("${ohara.ai.pricing.llm-input-micro-usd-per-mtok:0}") long inputMicroUsdPerMTok,
-              @Value("${ohara.ai.pricing.llm-output-micro-usd-per-mtok:0}") long outputMicroUsdPerMTok) {
+              @Value("${ohara.ai.pricing.llm-output-micro-usd-per-mtok:0}") long outputMicroUsdPerMTok, MeterRegistry meters) {
+        this.meters = meters;
         this.store = store;
         this.learner = learner;
         this.llm = llm;
@@ -246,6 +249,8 @@ public class QaService {
     }
 
     private UUID log(CurrentActor actor, LearnerService.OpenVideos open, String question, List<UUID> assets, Answered a) {
+        meters.counter("ohara.ai.qa.questions", "outcome", a.outcome()).increment();
+        meters.counter("ohara.ai.cost.micro_usd", "kind", "qa").increment(a.costMicroUsd());
         return store.logQuestion(new AiStore.QaLog(actor.userId(), open.enrollmentId(), open.organizationId(), open.courseId(),
             sha256(question.toLowerCase()), assets, a.outcome(), a.model(), a.inputTokens(), a.outputTokens(), a.costMicroUsd(),
             a.outcome().equals("ANSWERED"), a.cited().size(), a.dropped()));

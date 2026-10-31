@@ -1,8 +1,8 @@
 package org.example.ohara.organization.application;
 
-import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.common.web.Etags;
 import org.example.ohara.organization.api.dto.AddCohortMembersResponse;
 import org.example.ohara.organization.api.dto.CohortMemberResponse;
 import org.example.ohara.organization.api.dto.CohortResponse;
@@ -15,6 +15,7 @@ import org.example.ohara.organization.domain.OrganizationMembership;
 import org.example.ohara.organization.infrastructure.persistence.CohortMembershipRepository;
 import org.example.ohara.organization.infrastructure.persistence.CohortRepository;
 import org.example.ohara.organization.infrastructure.persistence.OrganizationMembershipRepository;
+import org.example.ohara.platform.audit.AuditLog;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -76,13 +77,14 @@ public class CohortService {
     public CohortResponse get(CurrentActor actor, UUID organizationId, UUID cohortId) {
         authorization.require(actor, organizationId, OrgPermission.VIEW_COHORTS);
         Cohort cohort = cohort(organizationId, cohortId);
-        return CohortResponse.of(cohort, cohortMemberships.findOpenByCohort(cohortId).size());
+        return CohortResponse.of(cohorts.saveAndFlush(cohort), cohortMemberships.findOpenByCohort(cohortId).size());
     }
 
     @Transactional
     public CohortResponse update(CurrentActor actor, UUID organizationId, UUID cohortId, UpdateCohortRequest request) {
         authorization.require(actor, organizationId, OrgPermission.MANAGE_COHORTS);
         Cohort cohort = cohort(organizationId, cohortId);
+        Etags.checkIfMatch(cohort.getVersion());
         if (request.name() != null) {
             cohort.rename(request.name().trim());
         }

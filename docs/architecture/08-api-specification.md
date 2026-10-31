@@ -26,6 +26,11 @@ Cursor pagination: `?limit=50&cursor=<opaque>`; response `{ "items": [...], "nex
 ### 1.4 Concurrency
 Mutable admin resources return `ETag` (`version` column); updates require `If-Match` → 412 on mismatch.
 
+*As built (R6 slice 3, 2026-10-31):*
+- **Where.** Organization, cohort, course, B2B offering and live session send `ETag: "<version>"` on every single-resource response. Their DTOs gain `version`, and a `ResponseBodyAdvice` adds the header to any `Versioned` body.
+- **Checking.** Their PATCH calls `Etags.checkIfMatch` before changing anything. A stale tag → 412 `precondition_failed` with `currentETag`. `W/"n"` and `*` match.
+- **Not mandatory yet.** Requests without `If-Match` are still accepted until the frontend sends it everywhere; then flip to 428. Course-version drafts and member edits don't have ETags yet.
+
 ### 1.5 Idempotency
 `Idempotency-Key` header (UUID) **required** on: staff access grants/extensions/revocations, asset/upload initiation, bulk import submit, offering open, invitation create (bulk). Stored in `idempotency_key` (24 h): same key + same body hash → replay stored response; same key + different body → 422 `idempotency_key_reused`.
 

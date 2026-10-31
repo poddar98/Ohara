@@ -17,14 +17,21 @@ class JobPollingConfig {
     static class Polling {
 
         private final JobRunner runner;
+        private final JobQueueMetrics metrics;
 
-        Polling(JobRunner runner) {
+        Polling(JobRunner runner, JobQueueMetrics metrics) {
             this.runner = runner;
+            this.metrics = metrics;
         }
 
         @Scheduled(fixedDelayString = "${ohara.jobs.poll-interval:1s}")
         void poll() {
             runner.runOnce();
+        }
+
+        @Scheduled(fixedDelayString = "${ohara.jobs.metrics-interval:30s}")
+        void queueMetrics() {
+            metrics.refresh();
         }
     }
 }

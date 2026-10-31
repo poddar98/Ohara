@@ -1,5 +1,6 @@
 package org.example.ohara.ai.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.ai.application.StudyMaterial.Task;
 import org.example.ohara.ai.infrastructure.persistence.AiStore;
 import org.example.ohara.platform.jobs.JobRequest;
@@ -44,13 +45,15 @@ class GenerationPipeline {
     private final boolean autoSummarize;
     private final long inputMicroUsdPerMTok;
     private final long outputMicroUsdPerMTok;
+    private final MeterRegistry meters;
     private final int maxAttempts;
 
     GenerationPipeline(AiStore store, LlmClient llm, JobScheduler jobs, TransactionTemplate tx, JsonMapper json,
                        @Value("${ohara.ai.auto-summarize:true}") boolean autoSummarize,
                        @Value("${ohara.ai.pricing.llm-input-micro-usd-per-mtok:0}") long inputMicroUsdPerMTok,
                        @Value("${ohara.ai.pricing.llm-output-micro-usd-per-mtok:0}") long outputMicroUsdPerMTok,
-                       @Value("${ohara.ai.llm.max-attempts:3}") int maxAttempts) {
+                       @Value("${ohara.ai.llm.max-attempts:3}") int maxAttempts, MeterRegistry meters) {
+        this.meters = meters;
         this.store = store;
         this.llm = llm;
         this.jobs = jobs;
@@ -137,6 +140,7 @@ class GenerationPipeline {
             StudyMaterial.schema(task), task.maxOutputTokens));
         long cost = (long) Math.ceil((response.inputTokens() * (double) inputMicroUsdPerMTok
             + response.outputTokens() * (double) outputMicroUsdPerMTok) / 1_000_000);
+        meters.counter("ohara.ai.cost.micro_usd", "kind", "llm").increment(cost);
         tx.executeWithoutResult(s -> store.addUsage(run.id(), response.model(), response.inputTokens(), response.outputTokens(),
             response.cacheReadTokens(), cost));
         return response;
@@ -158,6 +162,7 @@ class GenerationPipeline {
                 default -> throw new IllegalStateException(result.getClass().getName());
             }
             store.generationCompleted(run.id());
+            meters.counter("ohara.ai.generations", "task", task.name(), "outcome", "completed").increment();
         });
         log.info("Generation {} ({}) for asset {} completed", run.id(), task, run.assetId());
     }
@@ -171,5 +176,6 @@ class GenerationPipeline {
     private void fail(AiStore.GenerationRow run, String code, String detail) {
         log.warn("Generation {} failed ({}): {}", run.id(), code, detail);
         tx.executeWithoutResult(s -> store.generationFailed(run.id(), code, detail));
+        meters.counter("ohara.ai.generations", "task", run.task(), "outcome", code).increment();
     }
 }

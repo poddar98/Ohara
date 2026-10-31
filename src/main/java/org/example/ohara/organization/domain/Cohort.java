@@ -119,4 +119,7 @@ public class Cohort {
         this.status = newStatus;
         this.updatedAt = Instant.now();
     }
+
+    /** Optimistic-lock version; also the resource's ETag. */
+    public int getVersion() { return version; }
 }

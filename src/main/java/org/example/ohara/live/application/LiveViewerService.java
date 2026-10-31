@@ -1,5 +1,6 @@
 package org.example.ohara.live.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.ai.application.AiQueries;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
@@ -59,13 +60,15 @@ public class LiveViewerService {
     private final Duration playbackTtl;
     private final Duration replayTtl;
     private final Duration heartbeatInterval;
+    private final MeterRegistry meters;
 
     public LiveViewerService(LiveSessionRepository sessions, LiveAttendanceRepository attendance, LiveLifecycle lifecycle,
                              LiveStreamingProvider provider, ContentAccessService access, OfferingQueries offerings,
                              OrgAuthorizationService orgAuth, UserService users, AssetQueries assets, AiQueries ai,
                              @Value("${ohara.live.playback-ttl:60m}") Duration playbackTtl,
                              @Value("${ohara.playback.session-ttl:20m}") Duration replayTtl,
-                             @Value("${ohara.live.heartbeat-interval:30s}") Duration heartbeatInterval) {
+                             @Value("${ohara.live.heartbeat-interval:30s}") Duration heartbeatInterval, MeterRegistry meters) {
+        this.meters = meters;
         this.sessions = sessions;
         this.attendance = attendance;
         this.lifecycle = lifecycle;
@@ -116,6 +119,7 @@ public class LiveViewerService {
             attendance.findForUpdate(session.getId(), actor.userId()).orElseThrow().joined(now);
         }
 
+        meters.counter("ohara.live.joins", "role", role.name()).increment();
         LiveChannel channel = lifecycle.channel(session);
         Instant expiresAt = now.plus(playbackTtl);
         LiveStreamingProvider.PlaybackGrant playback = provider.playback(channel.getChannelRef(), actor.userId(), expiresAt);

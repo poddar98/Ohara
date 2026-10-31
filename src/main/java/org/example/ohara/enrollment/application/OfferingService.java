@@ -1,10 +1,10 @@
 package org.example.ohara.enrollment.application;
 
-import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
-import org.example.ohara.course.application.CourseQueries;
+import org.example.ohara.common.web.Etags;
 import org.example.ohara.course.application.CourseQueries.CourseFacts;
+import org.example.ohara.course.application.CourseQueries;
 import org.example.ohara.course.domain.Course;
 import org.example.ohara.course.domain.CourseVersion;
 import org.example.ohara.enrollment.api.dto.CreateB2BOfferingRequest;
@@ -21,6 +21,7 @@ import org.example.ohara.enrollment.infrastructure.persistence.EnrollmentReposit
 import org.example.ohara.organization.application.OrgAuthorizationService;
 import org.example.ohara.organization.application.OrgPermission;
 import org.example.ohara.organization.application.OrganizationQueries;
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.springframework.stereotype.Service;
@@ -117,6 +118,7 @@ public class OfferingService {
     public OfferingResponse reschedule(CurrentActor actor, UUID organizationId, UUID offeringId, UpdateOfferingRequest r) {
         orgAuthorization.require(actor, organizationId, OrgPermission.MANAGE_COURSES);
         CourseOffering offering = orgOffering(organizationId, offeringId);
+        Etags.checkIfMatch(offering.getVersion());
         Instant start = r.startsAt() != null ? r.startsAt() : offering.getStartsAt();
         Instant end = r.endsAt() != null ? r.endsAt() : offering.getEndsAt();
         window(() -> {
@@ -131,7 +133,7 @@ public class OfferingService {
                 grant.reschedule(from, end);
             }
         }
-        return response(offering);
+        return response(offerings.saveAndFlush(offering));
     }
 
     @Transactional

@@ -72,7 +72,7 @@ class LiveLifecycle {
     LiveSessionResponse view(LiveSession s) {
         return new LiveSessionResponse(s.getId(), s.getOrganizationId(), s.getCohortId(), s.getOfferingId(), s.getLessonId(),
             s.getTitle(), s.getHostUserId(), s.getScheduledStart(), s.getScheduledEnd(), joinOpensAt(s), s.getStatus().name(),
-            s.isNeedsHd(), s.getActualStart(), s.getActualEnd(), s.getCancelledReason(), s.getRecordingAssetId());
+            s.isNeedsHd(), s.getActualStart(), s.getActualEnd(), s.getCancelledReason(), s.getRecordingAssetId(), s.getVersion());
     }
 
     static ApiException notFound() {

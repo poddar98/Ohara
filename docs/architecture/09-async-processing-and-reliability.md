@@ -135,6 +135,23 @@ flowchart LR
 
 ## 8. Observability (metrics, dashboards, alerts)
 
+> **As built (R6 slice 3, 2026-10-31):**
+> - **Where metrics live.** Micrometer → Prometheus at `/actuator/prometheus` on the internal management port (`management.server.port`). The public port refuses `/actuator/**`, and load balancers health-check `/api/health`.
+> - **Metrics:**
+>   - `http_server_requests_seconds` (with histogram), for the API p95 SLOs;
+>   - `ohara_jobs_execution_seconds{type,outcome}`;
+>   - `ohara_jobs_queue{type,status}` (PENDING/RUNNING/DEAD) and `ohara_jobs_oldest_ready_seconds{type}`, refreshed every 30 s by workers;
+>   - `ohara_access_denied_total{reason}`, `ohara_auth_logins_total{outcome}`, `ohara_auth_lockouts_total`;
+>   - `ohara_playback_sessions_total{kind}`, `ohara_live_joins_total{role}`;
+>   - `ohara_ai_cost_micro_usd_total{kind}`, `ohara_ai_transcriptions_total{outcome}`, `ohara_ai_generations_total{task,outcome}`, `ohara_ai_qa_questions_total{outcome}`.
+> - **Tags** never carry tenant or user ids, which keeps cardinality bounded and the data non-personal.
+> - **Suggested first alerts:**
+>   - any `DEAD` job;
+>   - `oldest_ready_seconds` above 300 for 10 min;
+>   - a spike in cross-tenant denials;
+>   - lockouts above baseline;
+>   - AI cost rate above budget.
+
 Stack: Micrometer (already via Actuator) → CloudWatch (or Prometheus/Grafana if preferred); structured JSON logs with `traceId`; Modulith observability spans for module events. No new heavyweight platform.
 
 | Area | Metrics | Alerts (initial thresholds) |

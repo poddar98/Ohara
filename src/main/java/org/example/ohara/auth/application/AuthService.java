@@ -1,5 +1,6 @@
 package org.example.ohara.auth.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.auth.api.dto.LoginRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
@@ -40,6 +41,7 @@ public class AuthService {
     private final AuthEmails emails;
     private final AuditLog audit;
     private final ConsentService consentService;
+    private final MeterRegistry meters;
 
     public AuthService(
             UserService userService,
@@ -51,7 +53,8 @@ public class AuthService {
             TokenIssuer tokenIssuer,
             AccountRecoveryService accountRecoveryService,
             AuthEmails emails,
-            ConsentService consentService, AuditLog audit) {
+            ConsentService consentService, AuditLog audit, MeterRegistry meters) {
+        this.meters = meters;
         this.audit = audit;
         this.userService = userService;
         this.accountProvisioning = accountProvisioning;
@@ -99,8 +102,10 @@ public class AuthService {
         try {
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, request.password()));
         } catch (BadCredentialsException ex) {
+            meters.counter("ohara.auth.logins", "outcome", "bad_credentials").increment();
             credential.ifPresent(c -> {
                 if (c.recordFailedLogin(now)) {
+                    meters.counter("ohara.auth.lockouts").increment();
                     audit.record(null, null, "ACCOUNT_LOCKED", "USER", c.getAuthIdentity().getUser().getId(),
                         AuditLog.details("failedAttempts", c.getFailedAttempts(), "lockedUntil", c.getLockedUntil()));
                 }
@@ -111,6 +116,7 @@ public class AuthService {
         User user = userService.findByEmail(email)
             .orElseThrow(() -> new ApiException.Unauthenticated("invalid_credentials", "Invalid credentials"));
         credential.ifPresent(PasswordCredential::recordSuccessfulLogin);
+        meters.counter("ohara.auth.logins", "outcome", "success").increment();
         user.setLastLoginAt(now);
         return tokenIssuer.issue(user);
     }

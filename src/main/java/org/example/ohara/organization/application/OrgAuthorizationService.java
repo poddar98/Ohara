@@ -1,5 +1,6 @@
 package org.example.ohara.organization.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
@@ -26,8 +27,10 @@ public class OrgAuthorizationService {
     private final OrganizationRepository organizations;
     private final AuditLog audit;
     private final OrganizationMembershipRepository memberships;
+    private final MeterRegistry meters;
 
-    public OrgAuthorizationService(OrganizationRepository organizations, OrganizationMembershipRepository memberships, AuditLog audit) {
+    public OrgAuthorizationService(OrganizationRepository organizations, OrganizationMembershipRepository memberships, AuditLog audit, MeterRegistry meters) {
+        this.meters = meters;
         this.audit = audit;
         this.organizations = organizations;
         this.memberships = memberships;
@@ -46,6 +49,7 @@ public class OrgAuthorizationService {
             .orElse(null);
         if (membership == null) {
             // Someone outside the organization reached for it: answered as "not found", recorded for review.
+            meters.counter("ohara.access.denied", "reason", "cross_tenant").increment();
             audit.recordIndependently(actor.userId(), organizationId, "ACCESS_DENIED_CROSS_TENANT", "ORGANIZATION", organizationId,
                 AuditLog.details("permission", permission.name()));
             throw notFound();

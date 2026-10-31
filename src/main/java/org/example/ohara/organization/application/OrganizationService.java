@@ -1,9 +1,8 @@
 package org.example.ohara.organization.application;
 
-import org.example.ohara.platform.audit.AuditLog;
-import org.example.ohara.platform.audit.AuditQueries;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.common.web.Etags;
 import org.example.ohara.common.web.PageResponse;
 import org.example.ohara.organization.api.dto.AddMemberRequest;
 import org.example.ohara.organization.api.dto.CreateOrganizationRequest;
@@ -20,6 +19,8 @@ import org.example.ohara.organization.infrastructure.persistence.CohortMembershi
 import org.example.ohara.organization.infrastructure.persistence.CohortRepository;
 import org.example.ohara.organization.infrastructure.persistence.OrganizationMembershipRepository;
 import org.example.ohara.organization.infrastructure.persistence.OrganizationRepository;
+import org.example.ohara.platform.audit.AuditLog;
+import org.example.ohara.platform.audit.AuditQueries;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.example.ohara.user.domain.UserStatus;
@@ -119,8 +120,9 @@ public class OrganizationService {
     public OrganizationResponse rename(CurrentActor actor, UUID organizationId, String name) {
         authorization.require(actor, organizationId, OrgPermission.MANAGE_ORG);
         Organization org = organizations.getReferenceById(organizationId);
+        Etags.checkIfMatch(org.getVersion());
         org.rename(name.trim());
-        return OrganizationResponse.of(org);
+        return OrganizationResponse.of(organizations.saveAndFlush(org));
     }
 
     // --- members -----------------------------------------------------------------------------------

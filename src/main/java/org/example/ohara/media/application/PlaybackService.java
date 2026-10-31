@@ -1,5 +1,6 @@
 package org.example.ohara.media.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.ai.application.AiQueries;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
@@ -36,11 +37,13 @@ public class PlaybackService {
     private final PlaybackSessionRepository sessions;
     private final AiQueries ai;
     private final Duration ttl;
+    private final MeterRegistry meters;
     private final Duration refreshMargin;
 
     public PlaybackService(LearnerService learner, AssetQueries assets, PlaybackSessionRepository sessions, AiQueries ai,
                            @Value("${ohara.playback.session-ttl:20m}") Duration ttl,
-                           @Value("${ohara.playback.refresh-margin:5m}") Duration refreshMargin) {
+                           @Value("${ohara.playback.refresh-margin:5m}") Duration refreshMargin, MeterRegistry meters) {
+        this.meters = meters;
         this.learner = learner;
         this.assets = assets;
         this.sessions = sessions;
@@ -55,6 +58,7 @@ public class PlaybackService {
         LessonView.ContentItem video = videoItem(lesson, contentId);
         Instant expiresAt = expiry(lesson);
         AssetQueries.PlaybackGrant grant = grant(video, expiresAt);
+        meters.counter("ohara.playback.sessions", "kind", "start").increment();
         PlaybackSession session = sessions.save(new PlaybackSession(actor.userId(), lessonId, contentId, video.assetId(),
             lesson.enrollmentId(), expiresAt));
         return issued(session, lesson, grant);
@@ -70,6 +74,7 @@ public class PlaybackService {
         Instant expiresAt = expiry(lesson);
         AssetQueries.PlaybackGrant grant = grant(video, expiresAt);
         session.refreshed(expiresAt);
+        meters.counter("ohara.playback.sessions", "kind", "refresh").increment();
         return issued(session, lesson, grant);
     }
 

@@ -85,6 +85,13 @@ public abstract class ApiException extends RuntimeException {
         }
     }
 
+    /** The client's If-Match no longer matches: someone else changed the resource since it was read. */
+    public static class PreconditionFailed extends ApiException {
+        public PreconditionFailed(String code, String message) {
+            super(HttpStatus.PRECONDITION_FAILED, code, message);
+        }
+    }
+
     /** A dependency (e.g. an AI provider) is temporarily unavailable; the client may retry later. */
     public static class ServiceUnavailable extends ApiException {
         public ServiceUnavailable(String code, String message) {

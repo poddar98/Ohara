@@ -38,8 +38,11 @@ auth:
   refresh-cookie:
     secure: false  # plain HTTP locally; the browser would drop a Secure cookie
 
+# Internal port for Prometheus scraping; never exposed through the load balancer.
 management:
+  server:
+    port: 8081
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus

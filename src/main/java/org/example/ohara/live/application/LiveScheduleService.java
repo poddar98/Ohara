@@ -1,11 +1,11 @@
 package org.example.ohara.live.application;
 
-import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.common.web.Etags;
 import org.example.ohara.course.application.CourseQueries;
-import org.example.ohara.enrollment.application.OfferingQueries;
 import org.example.ohara.enrollment.application.OfferingQueries.OfferingFacts;
+import org.example.ohara.enrollment.application.OfferingQueries;
 import org.example.ohara.live.api.dto.AttendanceRow;
 import org.example.ohara.live.api.dto.IngestResponse;
 import org.example.ohara.live.api.dto.LiveSessionResponse;
@@ -20,6 +20,7 @@ import org.example.ohara.live.infrastructure.persistence.LiveChannelRepository;
 import org.example.ohara.live.infrastructure.persistence.LiveSessionRepository;
 import org.example.ohara.organization.application.OrgAuthorizationService;
 import org.example.ohara.organization.application.OrgPermission;
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.springframework.beans.factory.annotation.Value;
@@ -111,6 +112,7 @@ public class LiveScheduleService {
         if (!session.isUpcoming()) {
             throw new ApiException.Conflict("session_not_editable", "Only upcoming sessions can be changed");
         }
+        Etags.checkIfMatch(session.getVersion());
         UUID host = request.hostUserId() != null ? request.hostUserId() : session.getHostUserId();
         if (!host.equals(session.getHostUserId())) {
             requireHost(actor, orgId, host);

@@ -1,5 +1,6 @@
 package org.example.ohara.ai.application;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.ohara.ai.infrastructure.persistence.AiStore;
 import org.example.ohara.content.application.AssetQueries;
 import org.example.ohara.content.application.AssetQueries.MediaSource;
@@ -55,6 +56,7 @@ class TranscriptionPipeline {
     private final double minConfidence;
     private final Duration pollInterval;
     private final int maxPolls;
+    private final MeterRegistry meters;
     private final int maxAttempts;
 
     TranscriptionPipeline(AssetQueries assets, AiStore store, SpeechToText stt, Captions captions,
@@ -65,7 +67,8 @@ class TranscriptionPipeline {
                           @Value("${ohara.ai.stt.min-confidence:0.6}") double minConfidence,
                           @Value("${ohara.ai.poll-interval:30s}") Duration pollInterval,
                           @Value("${ohara.ai.max-polls:480}") int maxPolls,
-                          @Value("${ohara.ai.max-attempts:3}") int maxAttempts) {
+                          @Value("${ohara.ai.max-attempts:3}") int maxAttempts, MeterRegistry meters) {
+        this.meters = meters;
         this.assets = assets;
         this.store = store;
         this.stt = stt;
@@ -146,6 +149,8 @@ class TranscriptionPipeline {
             long cost = (long) Math.ceil(audioSeconds * microUsdPerMinute / 60.0);
             String language = result.language() != null ? result.language() : languages.getFirst();
             store.markCompleted(run.id(), language, audioSeconds, cost);
+            meters.counter("ohara.ai.cost.micro_usd", "kind", "stt").increment(cost);
+            meters.counter("ohara.ai.transcriptions", "outcome", "completed").increment();
 
             double confidence = result.segments().stream().filter(x -> x.confidence() != null)
                 .mapToDouble(SpeechToText.Segment::confidence).average().orElse(0);
@@ -186,6 +191,7 @@ class TranscriptionPipeline {
         } else {
             log.error("Transcription {} failed after {} attempts ({}): {}", run.id(), run.attempts(), code, detail);
             store.markFailed(run.id(), code, detail);
+            meters.counter("ohara.ai.transcriptions", "outcome", "failed").increment();
         }
     }
 

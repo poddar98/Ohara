@@ -226,4 +226,7 @@ public class LiveSession {
     public UUID getCreatedBy() { return createdBy; }
     public String getRecordingMasterKey() { return recordingMasterKey; }
     public UUID getRecordingAssetId() { return recordingAssetId; }
+
+    /** Optimistic-lock version; also the resource's ETag. */
+    public int getVersion() { return version; }
 }

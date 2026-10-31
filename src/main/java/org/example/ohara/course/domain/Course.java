@@ -111,4 +111,7 @@ public class Course {
     public UUID getCreatedBy() { return createdBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    /** Optimistic-lock version; also the resource's ETag. */
+    public int getVersion() { return version; }
 }

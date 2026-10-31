@@ -181,4 +181,7 @@ public class CourseOffering {
     public String getCurrency() { return currency; }
     public Status getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
+
+    /** Optimistic-lock version; also the resource's ETag. */
+    public int getVersion() { return version; }
 }

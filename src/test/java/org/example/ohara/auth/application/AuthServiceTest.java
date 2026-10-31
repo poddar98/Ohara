@@ -1,5 +1,6 @@
 package org.example.ohara.auth.application;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.auth.api.dto.LoginRequest;
 import org.example.ohara.auth.api.dto.RegisterRequest;
@@ -76,7 +77,8 @@ class AuthServiceTest {
             accountRecoveryService,
             emails,
             consentService,
-            mock(AuditLog.class)
+            mock(AuditLog.class),
+            new SimpleMeterRegistry()
         );
     }
 

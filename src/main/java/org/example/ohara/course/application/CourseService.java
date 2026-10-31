@@ -1,8 +1,8 @@
 package org.example.ohara.course.application;
 
-import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.common.security.CurrentActor;
 import org.example.ohara.common.web.ApiException;
+import org.example.ohara.common.web.Etags;
 import org.example.ohara.common.web.PageResponse;
 import org.example.ohara.course.api.dto.CourseResponse;
 import org.example.ohara.course.api.dto.CreateCourseRequest;
@@ -17,6 +17,7 @@ import org.example.ohara.course.infrastructure.persistence.CourseRepository;
 import org.example.ohara.course.infrastructure.persistence.CourseVersionRepository;
 import org.example.ohara.organization.application.OrgAuthorizationService;
 import org.example.ohara.organization.application.OrgPermission;
+import org.example.ohara.platform.audit.AuditLog;
 import org.example.ohara.user.application.UserService;
 import org.example.ohara.user.domain.User;
 import org.springframework.data.domain.Page;
@@ -105,6 +106,7 @@ public class CourseService {
     public CourseResponse update(CurrentActor actor, UUID courseId, UpdateCourseRequest request) {
         Course course = course(courseId);
         access.require(actor, course, StaffRole.OWNER);
+        Etags.checkIfMatch(course.getVersion());
         if (request.title() != null) {
             course.rename(request.title().trim());
         }
@@ -114,7 +116,7 @@ public class CourseService {
             }
             course.changeVisibility(request.visibility());
         }
-        return response(course);
+        return response(courses.saveAndFlush(course));
     }
 
     /** Hidden from new offerings; existing learners keep their access (enrollment decides). */
