@@ -132,6 +132,12 @@ Each phase ships behind mock adapters first, then real providers in a `dev` AWS 
 - **Risks:** STT quality on Hinglish/technical terms; LLM cost from Q&A abuse → caps.
 - **Out of scope:** pgvector (unless eval demands), multimodal frame analysis by default, auto-grading.
 
+## AWS adapters (in progress, 2026-10-31)
+Real-provider implementations behind the existing ports, each selected by configuration, with the local stand-ins remaining the default.
+- **Done:** S3 `ObjectStorage`, tested against LocalStack.
+- **Next:** MediaConvert `Transcoder`, CloudFront `CdnSigner` (signed cookies, key group), IVS `LiveStreamingProvider` and the EventBridge→SQS intake for media and IVS events, Transcribe `SpeechToText`. Then the LLM adapter once Q-15 is decided.
+- **Then, with the account (Q-04):** IaC, a dev-account smoke test and the benchmarks.
+
 ## R6 — Scale, cost and operational hardening
 
 **Status (2026-10-31): slice 1 (audit trail) complete.** It provides the append-only `audit_event` table, the audited actions listed in 10, cross-tenant denial records, and org and platform audit views. **Slice 2 (account deletion and anonymization, 04 §3.10) complete.**

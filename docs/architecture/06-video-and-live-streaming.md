@@ -58,6 +58,21 @@ sequenceDiagram
 
 ## 3. Storage layout
 
+> **As built (AWS adapters, S3, 2026-10-31):**
+> - **Selecting it.** `S3ObjectStorage` (AWS SDK v2 2.57.8, URL-connection HTTP client) is selected with `ohara.storage.provider=s3`.
+> - **Configuration:**
+>   - `ohara.aws.region`, default ap-south-1;
+>   - `ohara.storage.s3.source-bucket` and `ohara.storage.s3.delivery-bucket`;
+>   - credentials from the default AWS chain (task/instance role);
+>   - `ohara.storage.s3.endpoint`, `path-style` and static keys exist only for emulators and must not be set in production.
+> - **Bucket routing.** Keys under `delivery/` go to the delivery bucket (the CloudFront origin); everything else, uploads and `live/` recordings, goes to the versioned source bucket.
+> - **Upload protocol.** Part URLs are presigned for the part's exact `Content-Length`, so an oversized or tampered request is refused by S3. Completion maps `InvalidPart`/`InvalidPartOrder`/`EntityTooSmall`/`NoSuchUpload` to the same mismatch error as the local adapter.
+> - **Checksums.** The returned version id identifies the bytes. There's no whole-file SHA-256, because S3 multipart checksums are per part, so a client-declared checksum isn't compared for S3 uploads. (Option for later: CRC64 full-object checksums.)
+> - **Downloads** carry RFC 6266 `Content-Disposition` with the original UTF-8 file name.
+> - **Recordings.** Adoption uses server-side `CopyObject` from the source bucket to the delivery bucket.
+> - **Tests.** Against LocalStack 4.9 S3 with signature validation on (Testcontainers; skipped without Docker).
+> - **Still to do:** the bucket IaC (versioning, lifecycle and BPA as below), MediaConvert, CloudFront, IVS and the SQS event intake.
+
 **Two buckets** (different access patterns, policies and lifecycle), both in `ap-south-1`:
 
 | Bucket | Contents | Access | Versioning | Lifecycle |
