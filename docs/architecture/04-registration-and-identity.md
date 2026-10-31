@@ -146,6 +146,21 @@ They pay the contract team offline; the contract team grants the B2C offering to
 - Org admins cannot deactivate a *user*; they can only remove the *membership* (`REMOVED`) — the person may have other affiliations.
 
 ### 3.10 Deletion / anonymization
+> **As built (R6 slice 2, 2026-10-31):**
+> - **Request.** `POST /api/users/me/deletion-request {password}` → 202. Re-entering the password is required, so a stolen session can't delete the account. The account becomes DEACTIVATED at once: `auth_version` is bumped, refresh tokens are revoked and sign-in is refused. A confirmation email gives the date.
+> - **Scheduling.** `ACCOUNT_ANONYMIZE` runs at +`ohara.account.deletion-grace` (30d).
+> - **Cancelling.** A platform admin can cancel through `POST /api/admin/users/{id}/deletion/cancel`; the person can't sign in to do it. The stale job then does nothing.
+> - **Legal hold.** `PUT|DELETE /api/admin/users/{id}/legal-hold`, set by the contract team or platform admins. While held, the job defers by 7 days at a time, emails the person once per deferral, and audits each one.
+> - **Anonymization, in one transaction:**
+>   - auth: refresh tokens, one-time tokens, the password credential and auth identity are deleted;
+>   - user: email becomes `deleted+{id}@invalid`, names become "Deleted user", and consent withdrawal is recorded;
+>   - organization (via the `AccountEvents.Anonymizing` listener): open cohort placements end, so cohort grants end the normal way; memberships become REMOVED; roll numbers are cleared; invitations to the old address are revoked, with email and names scrubbed; bulk-import row details are scrubbed;
+>   - ai: the Q&A log is deleted.
+> - **Kept:** grants with bank references, enrollments, progress, attendance and the audit trail.
+> - **Differences from the design below:**
+>   - bulk-import rows are scrubbed rather than deleted, so import totals stay right;
+>   - removing the last org admin is allowed for a deletion, and platform admins appoint a replacement;
+>   - queued email jobs may still hold the address until job retention purges them.
 `POST /api/users/me/deletion-request` → `DEACTIVATED` + scheduled `ACCOUNT_ANONYMIZE` job at +30 days (cancel by reactivating). Anonymization:
 - Scrub: email → `deleted+{id}@invalid`, `user_profile` names → "Deleted user", phone/avatar null, revoke tokens, delete credentials and `one_time_token`s, withdraw consents, delete pending invitations to that email.
 - Keep: `users` row (status ANONYMIZED), access grants with their contract/bank references (finance reconciliation), enrollments/progress/attendance (aggregate reporting; tied to the anonymised id), audit events (with actor id only).

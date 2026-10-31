@@ -16,10 +16,12 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final ConsentService consentService;
+    private final AccountEvents events;
 
-    public UserService(UserRepository userRepository, ConsentService consentService) {
+    public UserService(UserRepository userRepository, ConsentService consentService, AccountEvents events) {
         this.userRepository = userRepository;
         this.consentService = consentService;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -69,5 +71,21 @@ public class UserService {
     @Transactional
     public User save(User user) {
         return userRepository.save(user);
+    }
+
+    /**
+     * Anonymizes the account (docs 04 §3.10): scrubs this module's data, records consent withdrawal, then lets every
+     * other module scrub theirs in the same transaction ({@link AccountEvents.Anonymizing}). Returns the former email.
+     */
+    @Transactional
+    public String anonymize(UUID userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ApiException.NotFound("user_not_found", "User not found"));
+        String formerEmail = user.getEmail();
+        user.anonymize(java.time.Instant.now());
+        userRepository.saveAndFlush(user);
+        consentService.recordWithdrawal(userId);
+        events.anonymizing(userId, formerEmail);
+        return formerEmail;
     }
 }

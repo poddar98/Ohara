@@ -410,6 +410,7 @@ Flyway, forward-only, one concern per script; each lands with the code that uses
 | V17__ai_generations ✅ (2026-10-31) | ai_generation; lecture_artifact.generation_id, edited_by, edited_at | Applied. |
 | V18__ai_qa_log ✅ (2026-10-31) | ai_qa_log | Applied. |
 | V19__audit_event ✅ (2026-10-31) | audit_event + append-only triggers (UPDATE/DELETE/TRUNCATE rejected) | Applied. |
+| V20__account_deletion ✅ (2026-10-31) | users.deletion_requested_at, deletion_due_at, legal_hold_reason, anonymized_at | Applied. |
 | V5__catalog | course_category, course, course_instructor, course_version, course_module, lesson, lesson_content; immutability trigger | Medium (trigger logic — test) |
 | V6__content | content_asset, media_upload, media_rendition | Low |
 | V7__enrollment | course_offering, enrollment, access_grant, lesson_progress | Low |

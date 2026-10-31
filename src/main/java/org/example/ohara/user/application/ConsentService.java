@@ -44,6 +44,15 @@ public class ConsentService {
             new UserConsent(userId, UserConsent.Type.MARKETING_EMAIL, "n/a", marketingEmails, source)));
     }
 
+    /** Everything withdrawn, when the account is deleted. History stays (append-only). */
+    @Transactional
+    public void recordWithdrawal(UUID userId) {
+        consents.saveAll(List.of(
+            new UserConsent(userId, UserConsent.Type.TERMS, termsVersion, false, UserConsent.Source.SETTINGS),
+            new UserConsent(userId, UserConsent.Type.PRIVACY, privacyVersion, false, UserConsent.Source.SETTINGS),
+            new UserConsent(userId, UserConsent.Type.MARKETING_EMAIL, "n/a", false, UserConsent.Source.SETTINGS)));
+    }
+
     @Transactional
     public List<ConsentState> update(UUID userId, Boolean acceptTerms, Boolean marketingEmails) {
         if (Boolean.FALSE.equals(acceptTerms)) {

@@ -122,7 +122,7 @@ if (d.denied()) throw d.toException();             // 404 for cross-tenant, 403 
 >   - cross-tenant denials (`ACCESS_DENIED_CROSS_TENANT`, recorded against the target org whenever `OrgAuthorizationService.require` refuses a non-member).
 > - **Details** hold ids and codes only, never emails or names.
 > - **Reading the trail.** `GET /api/orgs/{orgId}/audit` (new `VIEW_AUDIT` permission, org admins) and `GET /api/admin/audit` (platform staff), filtered by actor, action, resource and time.
-> - **Not audited yet:** impersonation (no such feature), data exports, account deletion (not built), and denials outside org authorization (e.g. lesson access).
+> - **Not audited yet:** impersonation (no such feature), data exports, and denials outside org authorization (e.g. lesson access). Account deletion is audited (slice 2): requested, legal hold placed/released, deferred, cancelled, anonymized.
 
 **Audited actions** (`audit_event`): authentication anomalies (lockouts, reuse detection), role/membership changes, invitations, imports, offering open/close, grant/extend/revoke (with contract/bank reference), course publish/archive, asset retire/delete/reprocess, live session ingest-key views, refunds, admin impersonation, data exports, account deactivation/deletion, cross-tenant denials.
 

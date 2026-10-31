@@ -53,6 +53,18 @@ public class User {
     @Column
     private Instant emailVerifiedAt;
 
+    @Column
+    private Instant deletionRequestedAt;
+
+    @Column
+    private Instant deletionDueAt;
+
+    @Column
+    private String legalHoldReason;
+
+    @Column
+    private Instant anonymizedAt;
+
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private UserProfile profile;
 
@@ -157,6 +169,65 @@ public class User {
         }
         updatedAt = now;
     }
+
+    /** The person asked to be deleted: the account is closed now and anonymized at {@code dueAt}. */
+    public void deletionRequested(Instant now, Instant dueAt) {
+        this.status = UserStatus.DEACTIVATED;
+        this.deletionRequestedAt = now;
+        this.deletionDueAt = dueAt;
+        this.authVersion++;
+        this.updatedAt = now;
+    }
+
+    /** Support cancelled a pending deletion at the person's request. */
+    public void deletionCancelled(Instant now) {
+        this.status = emailVerifiedAt != null ? UserStatus.ACTIVE : UserStatus.PENDING_VERIFICATION;
+        this.deletionRequestedAt = null;
+        this.deletionDueAt = null;
+        this.updatedAt = now;
+    }
+
+    public boolean isDeletionPending() {
+        return status == UserStatus.DEACTIVATED && deletionDueAt != null;
+    }
+
+    public void deletionDeferred(Instant newDueAt) {
+        this.deletionDueAt = newDueAt;
+        this.updatedAt = Instant.now();
+    }
+
+    /** An unresolved payment or refund dispute: deletion waits until the hold is released. */
+    public void legalHold(String reason) {
+        this.legalHoldReason = reason;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Removes what identifies the person; the row stays so grants, enrollments, attendance and audit events keep a
+     * stable (now anonymous) id. The email becomes a non-deliverable placeholder that keeps the unique index happy.
+     */
+    public void anonymize(Instant now) {
+        this.email = "deleted+" + id + "@invalid";
+        this.firstName = "Deleted";
+        this.lastName = "user";
+        this.status = UserStatus.ANONYMIZED;
+        this.anonymizedAt = now;
+        this.deletionDueAt = null;
+        this.legalHoldReason = null;
+        this.lastLoginAt = null;
+        this.authVersion++;
+        this.updatedAt = now;
+        if (profile != null) {
+            profile.setFirstName("Deleted");
+            profile.setLastName("user");
+            profile.setDisplayName("Deleted user");
+        }
+    }
+
+    public Instant getDeletionRequestedAt() { return deletionRequestedAt; }
+    public Instant getDeletionDueAt() { return deletionDueAt; }
+    public String getLegalHoldReason() { return legalHoldReason; }
+    public Instant getAnonymizedAt() { return anonymizedAt; }
 
     /** Accounts that may hold a session: verified and active, or still waiting for email verification. */
     public boolean canSignIn() {

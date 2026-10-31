@@ -7,6 +7,9 @@ import org.springframework.stereotype.Component;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Account emails, queued in the caller's transaction (see {@link EmailOutbox}): a rolled-back registration never
@@ -51,6 +54,20 @@ public class AuthEmails {
         send(to, null, "Your Ohara password was changed",
             "Your password was just changed and you were signed out everywhere. "
                 + "If this wasn't you, reset your password immediately: " + baseUrl + "/forgot-password");
+    }
+
+    void deletionScheduled(String to, Instant dueAt) {
+        send(to, null, "Your Ohara account will be deleted",
+            "You asked us to delete your Ohara account. You've been signed out and the account is closed. Your personal "
+                + "details will be removed permanently on " + DateTimeFormatter.ISO_LOCAL_DATE.format(dueAt.atOffset(ZoneOffset.UTC))
+                + " (UTC). Until then, contact support to cancel.\n\nRecords we must keep (payment references, course "
+                + "completion and attendance) stay, without your name or email.");
+    }
+
+    void deletionDeferred(String to) {
+        send(to, null, "Your Ohara account deletion is on hold",
+            "We can't delete your Ohara account yet because a payment or refund matter is still open. We'll complete "
+                + "the deletion once it's resolved; contact support if you have questions.");
     }
 
     private String link(String path, String rawToken) {
