@@ -4,8 +4,10 @@ import java.util.List;
 
 /**
  * Transcoding port, shaped like AWS MediaConvert: probe the source, submit an asynchronous job, poll its state.
- * Output layout contract (every adapter): {@code outputPrefix + "master.m3u8"} and one variant playlist per rung at
- * {@code outputPrefix + "<height>p/index.m3u8"}, segments relative to it.
+ * Output contract (every adapter): {@code outputPrefix + "master.m3u8"} listing one variant per rung (with RESOLUTION
+ * and BANDWIDTH), each variant playlist and its segments under {@code outputPrefix}, referenced by relative URIs.
+ * File names below that are the adapter's choice (local: {@code <height>p/index.m3u8}; MediaConvert:
+ * {@code master_<height>p.m3u8}); verification follows the master playlist.
  */
 public interface Transcoder {
 

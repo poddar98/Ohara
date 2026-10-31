@@ -95,6 +95,15 @@ The `asset/{assetId}/` prefix is the unit of authorization for signed cookies (�
 
 ## 4. Transcoding: MediaConvert vs FFmpeg workers
 
+> **As built (AWS adapters, MediaConvert, 2026-10-31):**
+> - **Selecting it.** `MediaConvertTranscoder` is selected with `ohara.media.transcoder=mediaconvert`.
+> - **Configuration:** `ohara.media.mediaconvert.role-arn` (the role MediaConvert assumes to read the source bucket and write the delivery bucket), plus optional `queue-arn` and `qvbr-quality` (default 7).
+> - **Probe.** Uses MediaConvert's Probe API: duration, and video size with rotation applied. Audio-only or unreadable files are rejected; throttling and 5xx errors are retried by the job.
+> - **Job.** One HLS group at `<delivery prefix>master`: 6 s segments, one output per ladder rung (`master_<height>p.m3u8`), H.264 Main QVBR capped at the rung's max bitrate, 2 s GOP with scene-change detection, AAC stereo at the rung's audio bitrate. Only the height is set, so 4:3 sources keep their shape.
+> - **Status.** ERROR and CANCELED map to FAILED with MediaConvert's error code; the pipeline's retries and HLS verification are unchanged.
+> - **Port contract.** The `Transcoder` contract is now "a master listing variants by relative URI" rather than a fixed file layout. A test shows the verifier accepts MediaConvert's single-directory layout.
+> - **Tests.** Request shape and state mapping are checked with a mocked client. There's no emulator, so a dev-account smoke test with the 3 sample lectures remains (R3 testing).
+
 | Criterion | MediaConvert (recommended) | FFmpeg on EC2/Fargate workers |
 |---|---|---|
 | Direct cost at 100 h/month (07/11) | ~$225/month Basic tier (1080p source → 1080/720/480), ~$360 Professional | ~$30–60/month compute (spot) |
