@@ -77,7 +77,7 @@ sequenceDiagram
 
 | Bucket | Contents | Access | Versioning | Lifecycle |
 |---|---|---|---|---|
-| `ohara-media-source-{env}` | Original uploads, live recordings (IVS), bulk-import files | API/worker IAM roles only; MediaConvert role read | **On** (immutable inputs, retry without re-upload) | Originals: Standard → Glacier Instant Retrieval after 30 days (still retrievable in ms for reprocessing). Imports: delete after 90 days. Noncurrent versions: delete after 30 days. |
+| `ohara-media-source-{env}` | Original uploads, live recordings (IVS), bulk-import files | API/worker IAM roles only; MediaConvert role read | **On** (immutable inputs, retry without re-upload) | Originals: Standard → Glacier Instant Retrieval after 30 days (still retrievable in ms for reprocessing). Imports: delete after 90 days. `stt-audio/` and `stt-output/` (Transcribe scratch, 07): delete after 7 days. Noncurrent versions: delete after 30 days. |
 | `ohara-media-delivery-{env}` | HLS renditions, thumbnails, captions/VTT, AI exports (large), downloadable PDFs | CloudFront OAC only; worker writes | Off (paths are versioned by generation) | Superseded generations deleted 7 days after a new generation is READY. Intelligent-Tiering for renditions older than 90 days (long-tail courses). |
 
 Key scheme (no PII, no file names):

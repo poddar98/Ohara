@@ -10,8 +10,27 @@ Status: **Proposed** · 2026-10-21 · All AI integrations are **proposed additio
 > - **Publishing.** A confident transcript (average confidence ≥ `ohara.ai.stt.min-confidence`, default 0.6) and its WebVTT captions are APPROVED automatically. An empty or low-confidence one waits as GENERATED for staff approve/reject. This is a global setting; the per-org setting (Q-16) is not built yet.
 > - **Captions.** Stored inside the video's current HLS delivery path, so the playback cookies cover them, and returned as `captions[]` from playback and live replay as sidecar tracks. They are not in the master playlist yet: iOS native players need that, while hls.js and video.js load sidecars. After a reprocess they are copied to the new path.
 > - **Search.** Postgres FTS (`websearch_to_tsquery`, `ts_headline`) over approved transcripts, restricted to the videos the learner may open in that enrollment (`LearnerService.openVideos`). The SQL needs an allowed-asset list; nothing can search all assets.
-> - **Limitation.** For live recordings the provider is given the HLS master. Real Transcribe needs an audio file, so the AWS adapter must add an audio-only output (MediaConvert for uploads, an audio rendition or extract for recordings).
+> - **Audio for real Transcribe:** solved in the AWS adapter (below). The pipeline still passes the source key, an upload or a recording's HLS master, and the adapter extracts the audio itself.
 > - **Deferred:** budgets.
+>
+> **As built (AWS adapter, 2026-11-03): `TranscribeSpeechToText`, selected with `ohara.ai.stt.provider=transcribe`.**
+> - **Two stages, one job reference** (`<transcribe job name>@<MediaConvert job id>`):
+>   1. On submit, MediaConvert extracts mono 64 kbps AAC (`stt-audio/<job>/speech.m4a`, source bucket) from the source: any container MediaConvert reads, or a recording's HLS master. Transcribe accepts neither HLS nor files over 2 GB, and the audio is about 29 MB per hour.
+>   2. The first poll after the extraction completes starts the Transcribe batch job. Its JSON goes to `stt-output/<job>.json` in the source bucket, not Transcribe's service bucket, so retention is ours.
+> - **No double billing.** The port's `Request` now carries a `clientRef` (transcription id plus attempt number). It is MediaConvert's client request token and the Transcribe job name, so a crash between the provider call and saving the reference, or a re-delivered poll, never starts a second job. The scratch prefixes are not deleted by the adapter, for the same reason; an S3 lifecycle rule expires them after 7 days (06 §3).
+> - **Languages.** The candidates (`ohara.ai.stt.languages`, default en-IN, hi-IN) travel as MediaConvert job metadata to the poll that starts Transcribe:
+>   - one candidate: a fixed `LanguageCode`;
+>   - otherwise language identification over the candidates;
+>   - `ohara.ai.stt.transcribe.multiple-languages=true` switches to multi-language identification for code-switched lectures, and the language spoken longest is reported.
+> - **Speakers.** Speaker labels are on, up to `ohara.ai.stt.transcribe.max-speakers` (default 4).
+> - **Segments.** Words are grouped into caption-sized segments (`TranscribeOutput`), cut at a speaker change, at a pause of 1.5 s, or after a sentence once it is 1.5 s long, and never longer than 8 s or 120 characters. A segment's confidence is the mean of its words', which feeds the existing auto-publish threshold.
+> - **Configuration.** It uses the transcoder's MediaConvert role (`ohara.media.mediaconvert.role-arn`). `ohara.ai.stt.transcribe.queue-arn` (default: the transcoder's queue) can give extraction its own queue so it never waits behind video jobs. It requires S3 storage. The app's IAM role needs `transcribe:StartTranscriptionJob`/`GetTranscriptionJob`, `mediaconvert:CreateJob`/`GetJob`, and S3 read on `stt-audio/` and write on `stt-output/` (Transcribe uses the caller's permissions).
+> - **Tested** with mocked clients and a parser test on Transcribe's output layouts (speaker labels on items, and the older `speaker_labels` block). The real-service run waits for the account (Q-04).
+> - **Not done:**
+>   - The extraction's MediaConvert minutes aren't added to the run's recorded cost.
+>   - A custom vocabulary (course terms) needs per-language `LanguageIdSettings`.
+>   - Lectures over Transcribe's 4-hour limit fail after the usual retries rather than being split.
+>   - The 10-lecture accuracy benchmark below (WER on Hinglish and technical terms) still decides whether Transcribe stays.
 >
 > **As built (R5 slice 2, 2026-10-31):**
 > - **Port.** An `LlmClient` port (JSON-schema-shaped requests, STANDARD/FAST tiers, usage, stop reason) with `LocalLlmClient`, which builds valid answers from the transcript lines in the prompt. Its markers are LLM_INVALID, LLM_BROKEN, LLM_REFUSE and LLM_DOWN. There is no real provider yet (Q-15).

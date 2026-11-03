@@ -138,8 +138,9 @@ Real-provider implementations behind the existing ports, each selected by config
   - S3 `ObjectStorage`, tested against LocalStack;
   - CloudFront `CdnSigner`, signed cookies verified cryptographically;
   - MediaConvert `Transcoder`: probe, job and status;
-  - IVS `LiveStreamingProvider` with the EventBridge→SQS event intake for IVS.
-- **Next:** Transcribe `SpeechToText`. Optionally, MediaConvert completion events through the same intake instead of polling. Then the LLM adapter once Q-15 is decided.
+  - IVS `LiveStreamingProvider` with the EventBridge→SQS event intake for IVS;
+  - Transcribe `SpeechToText`, with MediaConvert audio extraction for uploads and HLS recordings (07, 2026-11-03).
+- **Next:** the LLM adapter once Q-15 is decided. Optionally, MediaConvert completion events through the SQS intake instead of polling.
 - **Then, with the account (Q-04):** IaC, a dev-account smoke test and the benchmarks.
 
 ## R6 — Scale, cost and operational hardening

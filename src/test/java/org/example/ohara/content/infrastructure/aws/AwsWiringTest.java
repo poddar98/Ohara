@@ -12,7 +12,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * With the AWS providers selected, the application runs on S3, CloudFront and IVS, and the local stand-ins (with
+ * With the AWS providers selected, the application runs on S3, CloudFront, IVS and Transcribe, and the local stand-ins (with
  * their /dev-storage, /dev-cdn and /dev-live endpoints) are gone. (The SQS event poller only runs on job workers.)
  */
 @SpringBootTest(properties = {
@@ -27,7 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
     "ohara.cdn.cloudfront.key-pair-id=K2JCJMDEHXQW5F",
     "ohara.cdn.cookie-domain=.example.in",
     "ohara.live.provider=ivs",
-    "ohara.live.ivs.recording-configuration-arn=arn:aws:ivs:ap-south-1:123456789012:recording-configuration/Rec1"})
+    "ohara.live.ivs.recording-configuration-arn=arn:aws:ivs:ap-south-1:123456789012:recording-configuration/Rec1",
+    "ohara.ai.stt.provider=transcribe",
+    "ohara.media.mediaconvert.role-arn=arn:aws:iam::123456789012:role/ohara-mediaconvert"})
 class AwsWiringTest {
 
     @DynamicPropertySource
@@ -48,7 +50,14 @@ class AwsWiringTest {
     @Autowired ObjectStorage storage;
     @Autowired CdnSigner cdn;
     @Autowired org.example.ohara.live.application.LiveStreamingProvider live;
+    @Autowired org.example.ohara.ai.application.SpeechToText stt;
     @Autowired ApplicationContext context;
+
+    @Test
+    void transcribeReplacesTheLocalSpeechToText() {
+        assertThat(stt).isInstanceOf(org.example.ohara.ai.infrastructure.aws.TranscribeSpeechToText.class);
+        assertThat(stt.provider()).isEqualTo("AWS_TRANSCRIBE");
+    }
 
     @Test
     void s3ReplacesTheLocalStandIn() {

@@ -8,8 +8,12 @@ import java.util.List;
  */
 public interface SpeechToText {
 
-    /** {@code languages}: candidates for identification, most likely first (e.g. en-IN, hi-IN). */
-    record Request(String mediaKey, long durationMs, List<String> languages) {
+    /**
+     * {@code languages}: candidates for identification, most likely first (e.g. en-IN, hi-IN). {@code clientRef} is
+     * stable for one attempt of one transcription: submitting the same {@code clientRef} twice (a crash between the
+     * provider call and recording its reference) must not start, or bill, a second provider job.
+     */
+    record Request(String clientRef, String mediaKey, long durationMs, List<String> languages) {
     }
 
     record Segment(long startMs, long endMs, String text, Double confidence, String speaker) {

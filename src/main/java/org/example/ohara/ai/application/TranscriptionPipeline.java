@@ -108,6 +108,8 @@ class TranscriptionPipeline {
                 return; // already submitted; its checks are running
             }
             id = inFlight.get().id(); // a previous attempt crashed before submitting
+            submit(id, inFlight.get().attempts() + 1, source);
+            return;
         } else {
             id = tx.execute(s -> store.insertTranscription(source.assetId(), source.sourceRef(), stt.provider(), stt.model(),
                 work.requestedBy()).orElse(null));
@@ -115,7 +117,7 @@ class TranscriptionPipeline {
                 return;
             }
         }
-        submit(id, source);
+        submit(id, 1, source);
     }
 
     /** AI_TRANSCRIBE_CHECK. */
@@ -187,7 +189,7 @@ class TranscriptionPipeline {
         MediaSource source = assets.mediaSource(run.assetId()).orElse(null);
         if (run.attempts() < maxAttempts && source != null && source.ready()) {
             log.warn("Transcription {} attempt {} failed ({}): {}; retrying", run.id(), run.attempts(), code, detail);
-            submit(run.id(), source);
+            submit(run.id(), run.attempts() + 1, source);
         } else {
             log.error("Transcription {} failed after {} attempts ({}): {}", run.id(), run.attempts(), code, detail);
             store.markFailed(run.id(), code, detail);
@@ -195,8 +197,9 @@ class TranscriptionPipeline {
         }
     }
 
-    private void submit(UUID transcriptionId, MediaSource source) {
-        String ref = stt.submit(new SpeechToText.Request(source.sourceKey(), source.durationMs(), languages));
+    private void submit(UUID transcriptionId, int attempt, MediaSource source) {
+        String ref = stt.submit(new SpeechToText.Request(transcriptionId + "-" + attempt, source.sourceKey(),
+            source.durationMs(), languages));
         tx.executeWithoutResult(s -> {
             store.markSubmitted(transcriptionId, ref);
             scheduleCheck(transcriptionId, 1);
